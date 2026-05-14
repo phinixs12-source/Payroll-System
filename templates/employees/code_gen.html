@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}이름 코드 생성 | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">🔐 이름 코드 생성</h1>
+  <p class="page-subtitle">이름을 입력하면 암호화 코드로 변환합니다.</p>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-md-6">
+
+    <div class="card">
+      <div class="card-header">이름 → 코드 변환</div>
+      <div class="card-body">
+        <form method="POST" id="codeForm">
+          <div class="mb-3">
+            <label class="form-label">영문 이름 (띄어쓰기로 구분)</label>
+            <div class="code-input-row">
+              <input type="text" name="name" class="form-control"
+                     placeholder="예: Hong Gil Dong"
+                     value="{{ input_name }}"
+                     id="nameInput" autocomplete="off">
+              <button type="submit" class="btn btn-primary">변환</button>
+            </div>
+            <div class="form-text">성, 이름 순서로 띄어쓰기 구분 입력</div>
+          </div>
+        </form>
+
+        {% if result %}
+        <div class="mt-4">
+          <div class="form-label mb-2">생성된 코드</div>
+          <div class="code-result" id="codeResult">{{ result }}</div>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-outline-secondary btn-sm flex-fill"
+                    onclick="copyCode()">📋 복사</button>
+            <button class="btn btn-outline-primary btn-sm flex-fill"
+                    onclick="resetForm()">↩ 다시 생성</button>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- 규칙 설명 -->
+    <div class="card mt-3">
+      <div class="card-header">변환 규칙</div>
+      <div class="card-body">
+        <p class="mb-2 text-muted" style="font-size:13px">
+          각 단어의 <strong>첫 글자(소문자)</strong> + <strong>철자 수</strong> 를 이어 붙이고,
+          마지막에 <strong>전체 철자 수 합산</strong>을 추가합니다.
+        </p>
+        <div class="bg-light rounded p-3" style="font-family:monospace; font-size:13px">
+          Hong Gil Dong<br>
+          <span class="text-primary">h</span><span class="text-danger">4</span>
+          <span class="text-primary">g</span><span class="text-danger">3</span>
+          <span class="text-primary">d</span><span class="text-danger">4</span>
+          <span class="text-success">11</span>
+          <span class="text-muted ms-2">→ h4g3d411</span>
+        </div>
+        <small class="text-muted d-block mt-2">
+          Hong(4) + Gil(3) + Dong(4) = 전체 11자
+        </small>
+      </div>
+    </div>
+
+    <!-- 실시간 미리보기 -->
+    <div class="card mt-3">
+      <div class="card-header">실시간 미리보기</div>
+      <div class="card-body">
+        <input type="text" class="form-control mb-2" id="liveInput"
+               placeholder="이름 입력 시 즉시 변환">
+        <div class="code-result" id="liveResult" style="font-size:20px;padding:16px">
+          —
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyCode() {
+  const code = document.getElementById('codeResult').innerText;
+  navigator.clipboard.writeText(code).then(() => {
+    alert('코드가 클립보드에 복사되었습니다: ' + code);
+  });
+}
+
+function resetForm() {
+  document.getElementById('nameInput').value = '';
+  document.getElementById('codeForm').submit();
+}
+
+// 실시간 변환
+document.getElementById('liveInput').addEventListener('input', async function() {
+  const name = this.value.trim();
+  const el = document.getElementById('liveResult');
+  if (!name) { el.textContent = '—'; return; }
+  try {
+    const res = await fetch('/api/code-gen?name=' + encodeURIComponent(name));
+    const data = await res.json();
+    el.textContent = data.code || '—';
+  } catch(e) { el.textContent = '—'; }
+});
+</script>
+{% endblock %}

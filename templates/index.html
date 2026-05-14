@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}대시보드 | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">대시보드</h1>
+  <p class="page-subtitle">인건비 관리 시스템 현황을 확인합니다.</p>
+</div>
+
+<!-- 스탯 카드 -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon blue">👥</div>
+      <div>
+        <div class="stat-label">전체 인원</div>
+        <div class="stat-value">{{ total_emp }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon green">✅</div>
+      <div>
+        <div class="stat-label">재직 인원</div>
+        <div class="stat-value">{{ active_count }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon red">🚪</div>
+      <div>
+        <div class="stat-label">퇴직 인원</div>
+        <div class="stat-value">{{ resign_count }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="stat-card">
+      <div class="stat-icon gray">💰</div>
+      <div>
+        <div class="stat-label">수당 항목 수</div>
+        <div class="stat-value">{{ allowance_count }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 빠른 메뉴 -->
+<div class="row g-3">
+  <div class="col-md-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div style="font-size:40px;margin-bottom:12px">🔐</div>
+        <h6 class="fw-bold mb-2">이름 코드 생성</h6>
+        <p class="text-muted small mb-3">이름을 암호화 코드로 변환합니다.</p>
+        <a href="{{ url_for('code_gen') }}" class="btn btn-primary btn-sm">이동</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div style="font-size:40px;margin-bottom:12px">👤</div>
+        <h6 class="fw-bold mb-2">인원 관리</h6>
+        <p class="text-muted small mb-3">직원 등록·수정·삭제를 관리합니다.</p>
+        <a href="{{ url_for('employee_list') }}" class="btn btn-primary btn-sm">이동</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div style="font-size:40px;margin-bottom:12px">💵</div>
+        <h6 class="fw-bold mb-2">수당 항목 관리</h6>
+        <p class="text-muted small mb-3">수당 항목과 지급 조건을 설정합니다.</p>
+        <a href="{{ url_for('allowance_list') }}" class="btn btn-primary btn-sm">이동</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div style="font-size:40px;margin-bottom:12px">📋</div>
+        <h6 class="fw-bold mb-2">급여작업</h6>
+        <p class="text-muted small mb-3">당월 급여 계산을 단계별로 진행합니다.</p>
+        <a href="{{ url_for('payroll') }}" class="btn btn-secondary btn-sm">준비 중</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

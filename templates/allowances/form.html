@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}{{ '수당 수정' if mode == 'edit' else '수당 추가' }} | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">{{ '✏️ 수당 항목 수정' if mode == 'edit' else '➕ 수당 항목 추가' }}</h1>
+  <p class="page-subtitle">수당의 속성과 지급 조건을 설정합니다.</p>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <form method="POST">
+      <div class="card">
+        <div class="card-body">
+
+          <!-- 수당명 -->
+          <div class="mb-4">
+            <label class="form-label">수당명 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control"
+                   value="{{ item.name if item else '' }}"
+                   placeholder="예: 핸드폰보조금" required>
+          </div>
+
+          <!-- 통상임금 포함 -->
+          <div class="section-divider">통상임금 · 퇴직금</div>
+
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input type="checkbox" name="is_ordinary_wage" class="form-check-input"
+                     id="ordinaryWage" role="switch"
+                     {{ 'checked' if item and item.is_ordinary_wage }}
+                     onchange="toggleSeverance()">
+              <label class="form-check-label fw-bold" for="ordinaryWage">통상임금에 포함</label>
+            </div>
+            <div class="form-text">퇴직금 계산 시 이 수당을 통상임금에 산입합니다.</div>
+          </div>
+
+          <!-- 퇴직금 적용 유형 (통상임금 포함 시만 활성) -->
+          <div id="severanceSection"
+               style="{{ '' if (item and item.is_ordinary_wage) else 'opacity:0.4;pointer-events:none' }}">
+            <label class="form-label">퇴직금 적용 유형</label>
+            <div class="d-flex gap-3">
+              <div class="form-check">
+                <input type="checkbox" name="severance_db" class="form-check-input"
+                       id="sevDb" {{ 'checked' if item and item.severance_db }}>
+                <label class="form-check-label" for="sevDb">
+                  <span class="badge-severance badge-DB">DB형</span>
+                </label>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" name="severance_dc" class="form-check-input"
+                       id="sevDc" {{ 'checked' if item and item.severance_dc }}>
+                <label class="form-check-label" for="sevDc">
+                  <span class="badge-severance badge-DC">DC형</span>
+                </label>
+              </div>
+            </div>
+            <div class="form-text">해당 퇴직금 유형의 계산에만 산입됩니다.</div>
+          </div>
+
+          <!-- 지급 조건 -->
+          <div class="section-divider">지급 조건</div>
+
+          <div class="mb-3">
+            <label class="form-label">지급 조건 유형</label>
+            <div class="d-flex flex-column gap-2" id="conditionRadios">
+              <div class="form-check">
+                <input type="radio" name="payment_condition" class="form-check-input"
+                       id="condFixed" value="fixed"
+                       {{ 'checked' if not item or item.payment_condition == 'fixed' }}
+                       onchange="updateConditionUI()">
+                <label class="form-check-label" for="condFixed">
+                  <strong>고정지급</strong>
+                  <span class="text-muted ms-2" style="font-size:12px">조건 없이 항상 지급</span>
+                </label>
+              </div>
+              <div class="form-check">
+                <input type="radio" name="payment_condition" class="form-check-input"
+                       id="condMinDays" value="min_days"
+                       {{ 'checked' if item and item.payment_condition == 'min_days' }}
+                       onchange="updateConditionUI()">
+                <label class="form-check-label" for="condMinDays">
+                  <strong>최소 근무일수</strong>
+                  <span class="text-muted ms-2" style="font-size:12px">N일 이상 근무 시 전액 지급</span>
+                </label>
+              </div>
+              <div class="form-check">
+                <input type="radio" name="payment_condition" class="form-check-input"
+                       id="condProrated" value="prorated"
+                       {{ 'checked' if item and item.payment_condition == 'prorated' }}
+                       onchange="updateConditionUI()">
+                <label class="form-check-label" for="condProrated">
+                  <strong>일할계산</strong>
+                  <span class="text-muted ms-2" style="font-size:12px">근무일 / 총일수 × 금액</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 조건값 입력 (최소근무일수 선택 시) -->
+          <div class="mb-4" id="condValueBox"
+               style="{{ '' if (item and item.payment_condition == 'min_days') else 'display:none' }}">
+            <label class="form-label">최소 근무일수</label>
+            <div class="input-group" style="max-width:200px">
+              <input type="number" name="condition_value" class="form-control"
+                     min="1" max="31"
+                     value="{{ item.condition_value if item else 15 }}">
+              <span class="input-group-text">일 이상</span>
+            </div>
+          </div>
+
+          <!-- 적용 대상 -->
+          <div class="section-divider">적용 대상</div>
+          <div class="mb-4">
+            <select name="apply_target" class="form-select" style="max-width:200px">
+              <option value="all"      {{ 'selected' if not item or item.apply_target == 'all' }}>전체</option>
+              <option value="regular"  {{ 'selected' if item and item.apply_target == 'regular' }}>정규직만</option>
+              <option value="contract" {{ 'selected' if item and item.apply_target == 'contract' }}>계약직만</option>
+            </select>
+          </div>
+
+          <!-- 활성 여부 -->
+          <div class="form-check form-switch mb-3">
+            <input type="checkbox" name="is_active" class="form-check-input"
+                   id="isActive" role="switch"
+                   {{ 'checked' if not item or item.is_active }}>
+            <label class="form-check-label" for="isActive">수당 활성화</label>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary">
+          {{ '수정 완료' if mode == 'edit' else '추가' }}
+        </button>
+        <a href="{{ url_for('allowance_list') }}" class="btn btn-outline-secondary">취소</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleSeverance() {
+  const checked = document.getElementById('ordinaryWage').checked;
+  const section = document.getElementById('severanceSection');
+  section.style.opacity = checked ? '1' : '0.4';
+  section.style.pointerEvents = checked ? '' : 'none';
+  if (!checked) {
+    document.getElementById('sevDb').checked = false;
+    document.getElementById('sevDc').checked = false;
+  }
+}
+
+function updateConditionUI() {
+  const selected = document.querySelector('input[name="payment_condition"]:checked').value;
+  document.getElementById('condValueBox').style.display =
+    selected === 'min_days' ? '' : 'none';
+}
+</script>
+{% endblock %}

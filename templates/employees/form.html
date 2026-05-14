@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}{{ '인원 수정' if mode == 'edit' else '인원 등록' }} | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">{{ '✏️ 인원 수정' if mode == 'edit' else '➕ 인원 등록' }}</h1>
+  <p class="page-subtitle">급여 계산에 필요한 직원 정보를 입력합니다.</p>
+</div>
+
+<form method="POST">
+  <div class="row g-3">
+
+    <!-- 좌측 -->
+    <div class="col-lg-8">
+
+      <!-- 기본 정보 -->
+      <div class="card mb-3">
+        <div class="card-header">기본 정보</div>
+        <div class="card-body">
+          <div class="row g-3">
+
+            <div class="col-md-6">
+              <label class="form-label">이름 코드 <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <input type="text" name="name_code" class="form-control"
+                       value="{{ employee.name_code if employee else '' }}"
+                       placeholder="예: h4g3d411" required>
+                <a href="{{ url_for('code_gen') }}" target="_blank"
+                   class="btn btn-outline-secondary" title="코드 생성기 열기">🔐</a>
+              </div>
+              <div class="form-text">이름 코드 생성기에서 생성 후 입력</div>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">부서 / 팀</label>
+              <input type="text" name="department" class="form-control"
+                     value="{{ employee.department if employee else '' }}"
+                     placeholder="예: 영업팀">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">계약 유형</label>
+              <select name="contract_type" class="form-select">
+                {% for ct in ['정규직', '계약직', '파트타임'] %}
+                <option value="{{ ct }}"
+                  {{ 'selected' if (employee and employee.contract_type == ct) or (not employee and ct == '정규직') }}>
+                  {{ ct }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">입사일</label>
+              <input type="date" name="join_date" class="form-control"
+                     value="{{ employee.join_date if employee else '' }}">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">퇴사일 <span class="text-muted">(해당 시 입력)</span></label>
+              <input type="date" name="resign_date" class="form-control"
+                     value="{{ employee.resign_date if employee else '' }}">
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- 근무 조건 -->
+      <div class="card mb-3">
+        <div class="card-header">근무 조건</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">퇴직금 유형</label>
+              <select name="severance_type" class="form-select">
+                {% for st in ['DB', 'DC', '1년미만'] %}
+                <option value="{{ st }}"
+                  {{ 'selected' if (employee and employee.severance_type == st) or (not employee and st == 'DB') }}>
+                  {{ st }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">소정근로시간 (일)</label>
+              <input type="number" name="scheduled_hours" class="form-control"
+                     step="0.5" min="0" max="24"
+                     value="{{ employee.scheduled_hours if employee else '8' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">연장근로시간 (월)</label>
+              <input type="number" name="overtime_hours" class="form-control"
+                     step="0.5" min="0"
+                     value="{{ employee.overtime_hours if employee else '0' }}">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 급여 정보 -->
+      <div class="card mb-3">
+        <div class="card-header">급여 정보</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">기본급 (원)</label>
+              <input type="text" name="base_salary" class="form-control number-input"
+                     value="{{ employee.base_salary | fmt_number if employee else '0' }}"
+                     placeholder="3,000,000">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">공제 대상자 수</label>
+              <input type="number" name="deduction_count" class="form-control"
+                     min="1" value="{{ employee.deduction_count if employee else '1' }}">
+              <div class="form-text">근로소득세 간이세액표 적용 기준</div>
+            </div>
+          </div>
+
+          <!-- 수당 금액 -->
+          {% if allowances %}
+          <div class="section-divider mt-4">수당 금액 설정</div>
+          <div class="row g-3">
+            {% for a in allowances %}
+            <div class="col-md-4">
+              <label class="form-label">
+                {{ a.name }}
+                {% if a.payment_condition == 'min_days' %}
+                  <span class="text-muted" style="font-size:11px">({{ a.condition_value }}일이상)</span>
+                {% elif a.payment_condition == 'prorated' %}
+                  <span class="text-muted" style="font-size:11px">(일할)</span>
+                {% endif %}
+              </label>
+              <input type="text" name="allowance_{{ a.id }}" class="form-control number-input"
+                     value="{{ (emp_allowances[a.id] | fmt_number) if (emp_allowances is defined and a.id in emp_allowances) else '0' }}"
+                     placeholder="0">
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 우측 -->
+    <div class="col-lg-4">
+
+      <!-- 시스템 설정 -->
+      <div class="card mb-3">
+        <div class="card-header">시스템 설정</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">고지서 매칭 키</label>
+            <input type="text" name="match_key" class="form-control"
+                   value="{{ employee.match_key if employee else '' }}"
+                   placeholder="주민번호 앞 7자리" maxlength="7">
+            <div class="form-text">4대보험 고지서 자동 매칭에 사용</div>
+          </div>
+          <div class="form-check">
+            <input type="checkbox" name="is_exception" class="form-check-input"
+                   id="isException"
+                   {{ 'checked' if employee and employee.is_exception }}>
+            <label class="form-check-label" for="isException">예외자 처리</label>
+            <div class="form-text">체크 시 급여 계산에서 제외됩니다.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 안내 -->
+      <div class="card bg-light border-0">
+        <div class="card-body">
+          <p class="mb-1" style="font-size:12px;font-weight:700;color:#4a5568">📌 입력 안내</p>
+          <ul style="font-size:12px;color:#718096;padding-left:16px;margin:0">
+            <li>이름 코드는 상단 🔐 버튼으로 생성</li>
+            <li>퇴사일은 퇴직자만 입력</li>
+            <li>매칭키: 주민번호 앞 7자리<br>(예: 8501012)</li>
+            <li>수당 금액은 월 정액 기준</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 버튼 -->
+  <div class="d-flex gap-2 mt-2">
+    <button type="submit" class="btn btn-primary">
+      {{ '수정 완료' if mode == 'edit' else '등록' }}
+    </button>
+    <a href="{{ url_for('employee_list') }}" class="btn btn-outline-secondary">취소</a>
+  </div>
+
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 숫자 입력 필드 천단위 콤마
+document.querySelectorAll('.number-input').forEach(input => {
+  input.addEventListener('input', function() {
+    let v = this.value.replace(/[^0-9]/g, '');
+    this.value = v ? parseInt(v).toLocaleString() : '';
+  });
+});
+</script>
+{% endblock %}
