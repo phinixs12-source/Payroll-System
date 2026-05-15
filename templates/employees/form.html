@@ -3,8 +3,8 @@
 
 {% block content %}
 <div class="page-header">
-  <h1 class="page-title">{{ '✏️ 인원 수정' if mode == 'edit' else '➕ 인원 등록' }}</h1>
-  <p class="page-subtitle">급여 계산에 필요한 직원 정보를 입력합니다.</p>
+  <h1 class="page-title">{{ '✏️ 인원 수정' if mode == 'edit' else '➕ 인원 등록 (개별)' }}</h1>
+  <p class="page-subtitle">개별 직원 정보를 입력합니다. 대량 등록은 <a href="{{ url_for('employee_register') }}">인원 등록(엑셀)</a>을 이용하세요.</p>
 </div>
 
 <form method="POST">
@@ -18,50 +18,49 @@
         <div class="card-header">기본 정보</div>
         <div class="card-body">
           <div class="row g-3">
-
             <div class="col-md-6">
               <label class="form-label">이름 코드 <span class="text-danger">*</span></label>
               <div class="input-group">
                 <input type="text" name="name_code" class="form-control"
                        value="{{ employee.name_code if employee else '' }}"
                        placeholder="예: h4g3d411" required>
-                <a href="{{ url_for('code_gen') }}" target="_blank"
-                   class="btn btn-outline-secondary" title="코드 생성기 열기">🔐</a>
+                <a href="{{ url_for('employee_register') }}" target="_blank"
+                   class="btn btn-outline-secondary" title="코드 생성기">🔐</a>
               </div>
-              <div class="form-text">이름 코드 생성기에서 생성 후 입력</div>
             </div>
-
-            <div class="col-md-6">
-              <label class="form-label">부서 / 팀</label>
-              <input type="text" name="department" class="form-control"
-                     value="{{ employee.department if employee else '' }}"
-                     placeholder="예: 영업팀">
+            <div class="col-md-3">
+              <label class="form-label">직원 구분</label>
+              <select name="employee_type" class="form-select">
+                {% for et in ['직원', '임원'] %}
+                <option value="{{ et }}"
+                  {{ 'selected' if employee and employee.employee_type == et }}>{{ et }}</option>
+                {% endfor %}
+              </select>
             </div>
-
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">계약 유형</label>
               <select name="contract_type" class="form-select">
                 {% for ct in ['정규직', '계약직', '파트타임'] %}
                 <option value="{{ ct }}"
-                  {{ 'selected' if (employee and employee.contract_type == ct) or (not employee and ct == '정규직') }}>
-                  {{ ct }}
-                </option>
+                  {{ 'selected' if (employee and employee.contract_type == ct) or (not employee and ct == '정규직') }}>{{ ct }}</option>
                 {% endfor %}
               </select>
             </div>
-
+            <div class="col-md-4">
+              <label class="form-label">부서 / 팀</label>
+              <input type="text" name="department" class="form-control"
+                     value="{{ employee.department if employee else '' }}" placeholder="영업팀">
+            </div>
             <div class="col-md-4">
               <label class="form-label">입사일</label>
               <input type="date" name="join_date" class="form-control"
                      value="{{ employee.join_date if employee else '' }}">
             </div>
-
             <div class="col-md-4">
-              <label class="form-label">퇴사일 <span class="text-muted">(해당 시 입력)</span></label>
+              <label class="form-label">퇴사일 <span class="text-muted">(해당 시)</span></label>
               <input type="date" name="resign_date" class="form-control"
                      value="{{ employee.resign_date if employee else '' }}">
             </div>
-
           </div>
         </div>
       </div>
@@ -76,9 +75,7 @@
               <select name="severance_type" class="form-select">
                 {% for st in ['DB', 'DC', '1년미만'] %}
                 <option value="{{ st }}"
-                  {{ 'selected' if (employee and employee.severance_type == st) or (not employee and st == 'DB') }}>
-                  {{ st }}
-                </option>
+                  {{ 'selected' if (employee and employee.severance_type == st) or (not employee and st == 'DB') }}>{{ st }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -109,17 +106,9 @@
                      value="{{ employee.base_salary | fmt_number if employee else '0' }}"
                      placeholder="3,000,000">
             </div>
-            <div class="col-md-6">
-              <label class="form-label">공제 대상자 수</label>
-              <input type="number" name="deduction_count" class="form-control"
-                     min="1" value="{{ employee.deduction_count if employee else '1' }}">
-              <div class="form-text">근로소득세 간이세액표 적용 기준</div>
-            </div>
           </div>
-
-          <!-- 수당 금액 -->
           {% if allowances %}
-          <div class="section-divider mt-4">수당 금액 설정</div>
+          <div class="section-divider mt-4">수당 금액</div>
           <div class="row g-3">
             {% for a in allowances %}
             <div class="col-md-4">
@@ -132,8 +121,7 @@
                 {% endif %}
               </label>
               <input type="text" name="allowance_{{ a.id }}" class="form-control number-input"
-                     value="{{ (emp_allowances[a.id] | fmt_number) if (emp_allowances is defined and a.id in emp_allowances) else '0' }}"
-                     placeholder="0">
+                     value="{{ (emp_allowances[a.id] | fmt_number) if (emp_allowances is defined and a.id in emp_allowances) else '0' }}">
             </div>
             {% endfor %}
           </div>
@@ -146,6 +134,62 @@
     <!-- 우측 -->
     <div class="col-lg-4">
 
+      <!-- 비과세 / 공제 -->
+      <div class="card mb-3">
+        <div class="card-header">비과세 · 공제 설정</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-bold">연구보조비 비과세</label>
+            <div class="d-flex gap-3">
+              <div class="form-check">
+                <input type="radio" name="research_tax_exempt" value="Y"
+                       class="form-check-input" id="rteY"
+                       {{ 'checked' if employee and employee.research_tax_exempt == 'Y' }}>
+                <label class="form-check-label" for="rteY">대상</label>
+              </div>
+              <div class="form-check">
+                <input type="radio" name="research_tax_exempt" value="N"
+                       class="form-check-input" id="rteN"
+                       {{ 'checked' if not employee or employee.research_tax_exempt != 'Y' }}>
+                <label class="form-check-label" for="rteN">비대상</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label fw-bold">자녀공제 대상</label>
+            <div class="d-flex gap-3 mb-2">
+              <div class="form-check">
+                <input type="radio" name="child_deduction" value="Y"
+                       class="form-check-input" id="cdY"
+                       {{ 'checked' if employee and employee.child_deduction == 'Y' }}
+                       onchange="toggleChildCount()">
+                <label class="form-check-label" for="cdY">대상</label>
+              </div>
+              <div class="form-check">
+                <input type="radio" name="child_deduction" value="N"
+                       class="form-check-input" id="cdN"
+                       {{ 'checked' if not employee or employee.child_deduction != 'Y' }}
+                       onchange="toggleChildCount()">
+                <label class="form-check-label" for="cdN">비대상</label>
+              </div>
+            </div>
+            <div id="childCountBox"
+                 style="{{ '' if (employee and employee.child_deduction == 'Y') else 'display:none' }}">
+              <label class="form-label">자녀 수</label>
+              <select name="child_count" class="form-select" style="max-width:150px">
+                {% for n in [1, 2, 3] %}
+                <option value="{{ n }}"
+                  {{ 'selected' if employee and employee.child_count == n }}>
+                  {{ n }}명 (월 {{ '{:,}'.format(n * 200000) }}원)
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 시스템 설정 -->
       <div class="card mb-3">
         <div class="card-header">시스템 설정</div>
@@ -155,53 +199,52 @@
             <input type="text" name="match_key" class="form-control"
                    value="{{ employee.match_key if employee else '' }}"
                    placeholder="주민번호 앞 7자리" maxlength="7">
-            <div class="form-text">4대보험 고지서 자동 매칭에 사용</div>
+            <div class="form-text">4대보험 고지서 자동 매칭용</div>
           </div>
-          <div class="form-check">
-            <input type="checkbox" name="is_exception" class="form-check-input"
-                   id="isException"
-                   {{ 'checked' if employee and employee.is_exception }}>
-            <label class="form-check-label" for="isException">예외자 처리</label>
-            <div class="form-text">체크 시 급여 계산에서 제외됩니다.</div>
+          <div>
+            <label class="form-label fw-bold">예외자 여부</label>
+            <div class="d-flex gap-3">
+              <div class="form-check">
+                <input type="radio" name="is_exception" value="Y"
+                       class="form-check-input" id="excY"
+                       {{ 'checked' if employee and employee.is_exception == 'Y' }}>
+                <label class="form-check-label" for="excY">예외자</label>
+              </div>
+              <div class="form-check">
+                <input type="radio" name="is_exception" value="N"
+                       class="form-check-input" id="excN"
+                       {{ 'checked' if not employee or employee.is_exception != 'Y' }}>
+                <label class="form-check-label" for="excN">일반</label>
+              </div>
+            </div>
+            <div class="form-text">예외자는 급여 자동계산에서 제외</div>
           </div>
-        </div>
-      </div>
-
-      <!-- 안내 -->
-      <div class="card bg-light border-0">
-        <div class="card-body">
-          <p class="mb-1" style="font-size:12px;font-weight:700;color:#4a5568">📌 입력 안내</p>
-          <ul style="font-size:12px;color:#718096;padding-left:16px;margin:0">
-            <li>이름 코드는 상단 🔐 버튼으로 생성</li>
-            <li>퇴사일은 퇴직자만 입력</li>
-            <li>매칭키: 주민번호 앞 7자리<br>(예: 8501012)</li>
-            <li>수당 금액은 월 정액 기준</li>
-          </ul>
         </div>
       </div>
 
     </div>
   </div>
 
-  <!-- 버튼 -->
   <div class="d-flex gap-2 mt-2">
     <button type="submit" class="btn btn-primary">
       {{ '수정 완료' if mode == 'edit' else '등록' }}
     </button>
     <a href="{{ url_for('employee_list') }}" class="btn btn-outline-secondary">취소</a>
   </div>
-
 </form>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// 숫자 입력 필드 천단위 콤마
 document.querySelectorAll('.number-input').forEach(input => {
   input.addEventListener('input', function() {
     let v = this.value.replace(/[^0-9]/g, '');
     this.value = v ? parseInt(v).toLocaleString() : '';
   });
 });
+function toggleChildCount() {
+  const isY = document.getElementById('cdY').checked;
+  document.getElementById('childCountBox').style.display = isY ? '' : 'none';
+}
 </script>
 {% endblock %}

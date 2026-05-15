@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}인원 등록 | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">➕ 인원 등록</h1>
+  <p class="page-subtitle">Step 1에서 이름을 암호화하고, Step 2에서 연봉을 등록합니다.</p>
+</div>
+
+<!-- 스텝 인디케이터 -->
+<div class="d-flex align-items-center gap-3 mb-4">
+  <div class="step-indicator active" id="tab-step1" onclick="showStep(1)">
+    <span class="step-num">1</span>
+    <span class="step-label">이름 암호화</span>
+  </div>
+  <div class="step-arrow">→</div>
+  <div class="step-indicator" id="tab-step2" onclick="showStep(2)">
+    <span class="step-num">2</span>
+    <span class="step-label">연봉 등록</span>
+  </div>
+</div>
+
+<!-- ── Step 1 ──────────────────────────────────── -->
+<div id="step1">
+  <div class="row g-3">
+    <div class="col-lg-7">
+      <div class="card">
+        <div class="card-header">Step 1 — 한글 이름 엑셀 업로드</div>
+        <div class="card-body">
+
+          <div class="process-flow mb-4">
+            <div class="process-item">
+              <div class="process-icon">📥</div>
+              <div class="process-text">양식 다운로드</div>
+            </div>
+            <div class="process-arrow">→</div>
+            <div class="process-item">
+              <div class="process-icon">✏️</div>
+              <div class="process-text">이름 입력</div>
+            </div>
+            <div class="process-arrow">→</div>
+            <div class="process-item">
+              <div class="process-icon">📤</div>
+              <div class="process-text">업로드</div>
+            </div>
+            <div class="process-arrow">→</div>
+            <div class="process-item">
+              <div class="process-icon">📊</div>
+              <div class="process-text">결과 다운로드</div>
+            </div>
+          </div>
+
+          <!-- 양식 다운로드 -->
+          <div class="mb-4 p-3 bg-light rounded">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-bold" style="font-size:13px">📄 01_이름목록_양식.xlsx</div>
+                <div class="text-muted" style="font-size:12px">이름을 입력할 엑셀 양식입니다.</div>
+              </div>
+              <a href="{{ url_for('download_step1_template') }}"
+                 class="btn btn-outline-primary btn-sm">다운로드</a>
+            </div>
+          </div>
+
+          <!-- 파일 업로드 -->
+          <form method="POST" action="{{ url_for('process_step1') }}"
+                enctype="multipart/form-data" id="step1Form">
+            <div class="mb-3">
+              <label class="form-label fw-bold">이름 목록 파일 업로드</label>
+              <input type="file" name="file" class="form-control"
+                     accept=".xlsx,.xls" required id="step1File">
+              <div class="form-text">양식에 이름 입력 후 업로드 → 암호화된 결과 파일이 자동 다운로드됩니다.</div>
+            </div>
+            <button type="submit" class="btn btn-primary">
+              🔐 암호화 실행 & 결과 다운로드
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card">
+        <div class="card-header">암호화 규칙 안내</div>
+        <div class="card-body">
+          <p class="text-muted" style="font-size:12px;margin-bottom:12px">
+            한글 이름을 로마자로 변환 후 아래 규칙으로 코드를 생성합니다.
+          </p>
+          <div class="bg-dark rounded p-3 mb-3"
+               style="font-family:monospace;font-size:12px;color:#7dd3fc">
+            홍 길 동<br>
+            hong(4) + gil(3) + dong(4) = 11<br>
+            → <strong style="font-size:16px">h4g3d411</strong>
+          </div>
+          <div class="alert alert-warning py-2 mb-2" style="font-size:12px">
+            <strong>동명이인 처리</strong><br>
+            홍길동a → h4g3d411<strong>a</strong><br>
+            홍길동88 → h4g3d411<strong>88</strong>
+          </div>
+          <div class="alert alert-info py-2" style="font-size:12px">
+            <strong>이름 입력 형식</strong><br>
+            성과 이름을 띄어쓰기로 구분하면 더 정확합니다.<br>
+            예: <code>홍 길동</code> 또는 <code>홍 길 동</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Step 2 ──────────────────────────────────── -->
+<div id="step2" style="display:none">
+  <div class="row g-3">
+    <div class="col-lg-7">
+      <div class="card">
+        <div class="card-header">Step 2 — 암호화코드 + 연봉 업로드</div>
+        <div class="card-body">
+
+          <div class="process-flow mb-4">
+            <div class="process-item">
+              <div class="process-icon">📊</div>
+              <div class="process-text">Step1 결과 파일</div>
+            </div>
+            <div class="process-arrow">→</div>
+            <div class="process-item">
+              <div class="process-icon">💰</div>
+              <div class="process-text">연봉 입력</div>
+            </div>
+            <div class="process-arrow">→</div>
+            <div class="process-item">
+              <div class="process-icon">📤</div>
+              <div class="process-text">업로드</div>
+            </div>
+            <div class="process-arrow">→</div>
+            <div class="process-item">
+              <div class="process-icon">✅</div>
+              <div class="process-text">시스템 등록</div>
+            </div>
+          </div>
+
+          <!-- 양식 다운로드 -->
+          <div class="mb-4 p-3 bg-light rounded">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-bold" style="font-size:13px">📄 03_연봉등록_양식.xlsx</div>
+                <div class="text-muted" style="font-size:12px">
+                  또는 Step 1 결과파일(02_암호화결과.xlsx)에 연봉 열을 추가해도 됩니다.
+                </div>
+              </div>
+              <a href="{{ url_for('download_step2_template') }}"
+                 class="btn btn-outline-primary btn-sm">양식 다운로드</a>
+            </div>
+          </div>
+
+          <form method="POST" action="{{ url_for('process_step2') }}"
+                enctype="multipart/form-data">
+            <div class="mb-3">
+              <label class="form-label fw-bold">연봉 파일 업로드</label>
+              <input type="file" name="file" class="form-control"
+                     accept=".xlsx,.xls" required>
+              <div class="form-text">A열: 암호화코드 / B열: 연봉(숫자)</div>
+            </div>
+            <button type="submit" class="btn btn-primary">
+              💾 연봉 등록
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card">
+        <div class="card-header">파일 형식 안내</div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered" style="font-size:12px">
+              <thead class="table-light">
+                <tr><th>A열 암호화코드</th><th>B열 연봉(원)</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>h4g3d411</td><td>36000000</td></tr>
+                <tr><td>l4s4i16</td><td>42000000</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="alert alert-info py-2 mt-2" style="font-size:12px">
+            이미 등록된 코드는 <strong>연봉만 업데이트</strong>됩니다.<br>
+            새 코드는 기본값으로 신규 등록됩니다.
+          </div>
+          <div class="mt-3">
+            <a href="{{ url_for('employee_bulk_upload') }}"
+               class="btn btn-outline-secondary btn-sm w-100">
+              📋 상세정보(부서/계약유형 등) 일괄 등록 →
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+.step-indicator {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px; border-radius: 8px;
+  border: 2px solid #e2e8f0; cursor: pointer;
+  transition: all 0.2s; background: #fff;
+}
+.step-indicator.active {
+  border-color: var(--primary); background: var(--accent);
+}
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: #e2e8f0; display: flex; align-items: center;
+  justify-content: center; font-weight: 700; font-size: 13px;
+}
+.step-indicator.active .step-num { background: var(--primary); color: #fff; }
+.step-label { font-size: 13px; font-weight: 600; color: #4a5568; }
+.step-arrow { font-size: 20px; color: #cbd5e0; }
+
+.process-flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.process-item { text-align: center; }
+.process-icon { font-size: 24px; }
+.process-text { font-size: 11px; color: #718096; margin-top: 4px; }
+.process-arrow { color: #cbd5e0; font-size: 18px; }
+</style>
+<script>
+function showStep(n) {
+  document.getElementById('step1').style.display = n === 1 ? '' : 'none';
+  document.getElementById('step2').style.display = n === 2 ? '' : 'none';
+  document.getElementById('tab-step1').classList.toggle('active', n === 1);
+  document.getElementById('tab-step2').classList.toggle('active', n === 2);
+}
+
+// URL 파라미터로 스텝 자동 선택
+const params = new URLSearchParams(window.location.search);
+if (params.get('step') === '2') showStep(2);
+</script>
+{% endblock %}

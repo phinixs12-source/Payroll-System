@@ -19,7 +19,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name_code TEXT NOT NULL,
+            name_code TEXT NOT NULL UNIQUE,
             department TEXT,
             contract_type TEXT DEFAULT '정규직',
             join_date TEXT,
@@ -28,9 +28,12 @@ def init_db():
             scheduled_hours REAL DEFAULT 8.0,
             overtime_hours REAL DEFAULT 0.0,
             base_salary INTEGER DEFAULT 0,
-            is_exception INTEGER DEFAULT 0,
             match_key TEXT,
-            deduction_count INTEGER DEFAULT 1,
+            research_tax_exempt TEXT DEFAULT 'N',
+            child_deduction TEXT DEFAULT 'N',
+            child_count INTEGER DEFAULT 0,
+            is_exception TEXT DEFAULT 'N',
+            employee_type TEXT DEFAULT '직원',
             created_at TEXT DEFAULT (datetime('now', 'localtime')),
             updated_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
@@ -90,7 +93,7 @@ def init_db():
         )
     """)
 
-    # 기본 수당 항목 삽입 (없을 때만)
+    # 기본 수당 항목 삽입
     cur.execute("SELECT COUNT(*) FROM allowance_items")
     if cur.fetchone()[0] == 0:
         default_allowances = [
@@ -105,7 +108,7 @@ def init_db():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, default_allowances)
 
-    # 기본 설정값 삽입
+    # 기본 설정값
     default_settings = [
         ('company_name', '회사명', '회사 이름'),
         ('abnormal_threshold', '20', '이상값 경고 기준 (전월 대비 %)'),
@@ -122,9 +125,9 @@ def init_db():
 # ─── 직원 ──────────────────────────────────────────────
 def get_all_employees():
     conn = get_db()
-    rows = conn.execute("""
-        SELECT * FROM employees ORDER BY department, name_code
-    """).fetchall()
+    rows = conn.execute(
+        "SELECT * FROM employees ORDER BY department, name_code"
+    ).fetchall()
     conn.close()
     return rows
 
@@ -136,19 +139,66 @@ def get_employee(emp_id):
     return row
 
 
+def get_employee_by_code(name_code):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM employees WHERE name_code=?", (name_code,)).fetchone()
+    conn.close()
+    return row
+
+
 def create_employee(data):
     conn = get_db()
     conn.execute("""
         INSERT INTO employees
         (name_code, department, contract_type, join_date, resign_date,
          severance_type, scheduled_hours, overtime_hours, base_salary,
-         is_exception, match_key, deduction_count)
+         match_key, research_tax_exempt, child_deduction, child_count,
+         is_exception, employee_type)
         VALUES (:name_code, :department, :contract_type, :join_date, :resign_date,
                 :severance_type, :scheduled_hours, :overtime_hours, :base_salary,
-                :is_exception, :match_key, :deduction_count)
+                :match_key, :research_tax_exempt, :child_deduction, :child_count,
+                :is_exception, :employee_type)
     """, data)
     conn.commit()
     emp_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return emp_id
+
+
+def upsert_employee(data):
+    """코드 기준으로 있으면 업데이트, 없으면 삽입"""
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id FROM employees WHERE name_code=?", (data['name_code'],)
+    ).fetchone()
+    if existing:
+        conn.execute("""
+            UPDATE employees SET
+                department=:department, contract_type=:contract_type,
+                join_date=:join_date, resign_date=:resign_date,
+                severance_type=:severance_type, scheduled_hours=:scheduled_hours,
+                overtime_hours=:overtime_hours, base_salary=:base_salary,
+                match_key=:match_key, research_tax_exempt=:research_tax_exempt,
+                child_deduction=:child_deduction, child_count=:child_count,
+                is_exception=:is_exception, employee_type=:employee_type,
+                updated_at=datetime('now','localtime')
+            WHERE name_code=:name_code
+        """, data)
+        emp_id = existing['id']
+    else:
+        conn.execute("""
+            INSERT INTO employees
+            (name_code, department, contract_type, join_date, resign_date,
+             severance_type, scheduled_hours, overtime_hours, base_salary,
+             match_key, research_tax_exempt, child_deduction, child_count,
+             is_exception, employee_type)
+            VALUES (:name_code, :department, :contract_type, :join_date, :resign_date,
+                    :severance_type, :scheduled_hours, :overtime_hours, :base_salary,
+                    :match_key, :research_tax_exempt, :child_deduction, :child_count,
+                    :is_exception, :employee_type)
+        """, data)
+        emp_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
     conn.close()
     return emp_id
 
@@ -161,11 +211,23 @@ def update_employee(emp_id, data):
             contract_type=:contract_type, join_date=:join_date,
             resign_date=:resign_date, severance_type=:severance_type,
             scheduled_hours=:scheduled_hours, overtime_hours=:overtime_hours,
-            base_salary=:base_salary, is_exception=:is_exception,
-            match_key=:match_key, deduction_count=:deduction_count,
+            base_salary=:base_salary, match_key=:match_key,
+            research_tax_exempt=:research_tax_exempt,
+            child_deduction=:child_deduction, child_count=:child_count,
+            is_exception=:is_exception, employee_type=:employee_type,
             updated_at=datetime('now','localtime')
         WHERE id=:id
     """, {**data, 'id': emp_id})
+    conn.commit()
+    conn.close()
+
+
+def update_employee_salary(name_code, base_salary):
+    conn = get_db()
+    conn.execute(
+        "UPDATE employees SET base_salary=?, updated_at=datetime('now','localtime') WHERE name_code=?",
+        (base_salary, name_code)
+    )
     conn.commit()
     conn.close()
 
@@ -180,9 +242,9 @@ def delete_employee(emp_id):
 # ─── 수당 항목 ──────────────────────────────────────────
 def get_all_allowances():
     conn = get_db()
-    rows = conn.execute("""
-        SELECT * FROM allowance_items ORDER BY sort_order, id
-    """).fetchall()
+    rows = conn.execute(
+        "SELECT * FROM allowance_items ORDER BY sort_order, id"
+    ).fetchall()
     conn.close()
     return rows
 
@@ -231,7 +293,8 @@ def delete_allowance(item_id):
 def toggle_allowance(item_id):
     conn = get_db()
     conn.execute("""
-        UPDATE allowance_items SET is_active = CASE WHEN is_active=1 THEN 0 ELSE 1 END
+        UPDATE allowance_items
+        SET is_active = CASE WHEN is_active=1 THEN 0 ELSE 1 END
         WHERE id=?
     """, (item_id,))
     conn.commit()

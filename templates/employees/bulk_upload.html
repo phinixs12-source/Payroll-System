@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}인원 일괄등록 | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">📋 인원 상세정보 일괄등록</h1>
+    <p class="page-subtitle">부서, 계약유형, 입사일 등 상세정보를 엑셀로 한 번에 등록합니다.</p>
+  </div>
+  <a href="{{ url_for('employee_list') }}" class="btn btn-outline-secondary btn-sm">← 인원 목록</a>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">엑셀 일괄 업로드</div>
+      <div class="card-body">
+
+        <!-- 양식 다운로드 -->
+        <div class="mb-4 p-3 rounded" style="background:#f0f7ff;border:1px solid #bee3f8">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="fw-bold" style="font-size:13px">📄 04_인원정보_일괄업로드_양식.xlsx</div>
+              <div class="text-muted" style="font-size:12px">
+                양식을 다운로드해서 정보를 입력한 후 업로드하세요.
+              </div>
+            </div>
+            <a href="{{ url_for('download_bulk_template') }}"
+               class="btn btn-primary btn-sm">양식 다운로드</a>
+          </div>
+        </div>
+
+        <!-- 업로드 폼 -->
+        <form method="POST" action="{{ url_for('process_bulk_upload') }}"
+              enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label fw-bold">파일 선택</label>
+            <input type="file" name="file" class="form-control"
+                   accept=".xlsx,.xls" required>
+            <div class="form-text">이미 등록된 코드는 덮어쓰기(업데이트)됩니다.</div>
+          </div>
+          <button type="submit" class="btn btn-primary">📤 업로드 & 등록</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <!-- 컬럼 안내 -->
+    <div class="card">
+      <div class="card-header">컬럼 안내</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" style="font-size:12px">
+          <thead class="table-light">
+            <tr><th>열</th><th>항목</th><th>형식/예시</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>A</td><td class="fw-bold">암호화코드 *</td><td>h4g3d411</td></tr>
+            <tr><td>B</td><td>부서/팀</td><td>영업팀</td></tr>
+            <tr><td>C</td><td>계약유형</td><td>정규직/계약직/파트타임</td></tr>
+            <tr><td>D</td><td>입사일</td><td>2020-01-15</td></tr>
+            <tr><td>E</td><td>퇴사일</td><td>없으면 공백</td></tr>
+            <tr><td>F</td><td>퇴직금유형</td><td>DB/DC/1년미만</td></tr>
+            <tr><td>G</td><td>소정근로시간</td><td>8</td></tr>
+            <tr><td>H</td><td>연장근로시간</td><td>0</td></tr>
+            <tr><td>I</td><td>매칭키</td><td>주민번호앞7자리</td></tr>
+            <tr><td>J</td><td>연구보조비비과세</td><td>Y 또는 N</td></tr>
+            <tr><td>K</td><td>자녀공제대상</td><td>Y 또는 N</td></tr>
+            <tr><td>L</td><td>자녀수</td><td>0~3 (K=Y일때)</td></tr>
+            <tr><td>M</td><td>예외자여부</td><td>Y 또는 N</td></tr>
+            <tr><td>N</td><td>직원/임원</td><td>직원 또는 임원</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 주의사항 -->
+    <div class="card mt-3 border-warning">
+      <div class="card-body py-2">
+        <p class="mb-1 fw-bold" style="font-size:12px;color:#92400e">⚠️ 주의사항</p>
+        <ul style="font-size:12px;color:#718096;padding-left:16px;margin:0">
+          <li>A열(암호화코드)은 필수입니다.</li>
+          <li>연봉은 Step 2에서 별도 등록하세요.</li>
+          <li>날짜는 YYYY-MM-DD 형식으로 입력</li>
+          <li>재업로드 시 기존 데이터가 덮어써집니다.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
