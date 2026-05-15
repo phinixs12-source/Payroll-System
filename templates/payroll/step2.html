@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Step 2: 입퇴사자 처리 | {{ period.year }}년 {{ period.month }}월{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">Step 2: 입퇴사자 일할계산</h1>
+    <p class="page-subtitle">{{ period.year }}년 {{ period.month }}월 입사·퇴사자를 확인하고 일할계산을 확정합니다.</p>
+  </div>
+  <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+     class="btn btn-outline-secondary btn-sm">← 대장으로</a>
+</div>
+
+{% if targets %}
+<form method="POST">
+  {% set new_hires = targets | selectattr('is_new_hire', 'equalto', 1) | list %}
+  {% set resigneds = targets | selectattr('is_resigned', 'equalto', 1) | list %}
+
+  {% if new_hires %}
+  <div class="card mb-3">
+    <div class="card-header" style="background:#f0fff4;color:#276749;border-left:4px solid #28a745">
+      🟢 이번 달 입사자 ({{ new_hires|length }}명)
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-sm mb-0" style="font-size:13px">
+        <thead class="table-light">
+          <tr>
+            <th>이름코드</th><th>소속</th><th>입사일</th>
+            <th class="text-center">총 달력일수</th>
+            <th class="text-center">근무일수</th>
+            <th class="text-right" style="text-align:right">기본급(일할)</th>
+            <th class="text-right" style="text-align:right">연장수당(일할)</th>
+            <th>비고</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in new_hires %}
+          {% set monthly = (e.annual_salary or 0) // 12 %}
+          <tr>
+            <td><code style="color:#1a4f8a">{{ e.name_code }}</code></td>
+            <td>{{ e.department or '—' }}</td>
+            <td>{{ (e.join_date or '')[:10] }}</td>
+            <td class="text-center">{{ total_days }}일</td>
+            <td class="text-center">
+              <input type="number" name="work_days_{{ e.id }}"
+                     class="form-control form-control-sm text-center wd-input"
+                     value="{{ e.work_days }}" min="1" max="{{ total_days }}"
+                     style="width:70px;display:inline-block"
+                     data-monthly="{{ monthly }}"
+                     data-base="{{ e.base_salary }}"
+                     data-ot="{{ e.overtime_pay }}"
+                     data-total="{{ total_days }}"
+                     data-rowid="{{ e.id }}"
+                     oninput="recalcRow(this)">
+            </td>
+            <td class="text-right" style="text-align:right">
+              <span id="base_{{ e.id }}">{{ e.base_salary | fmt_number }}</span>원
+            </td>
+            <td class="text-right" style="text-align:right">
+              <span id="ot_{{ e.id }}">{{ e.overtime_pay | fmt_number }}</span>원
+            </td>
+            <td>
+              <input type="text" name="notes_{{ e.id }}"
+                     class="form-control form-control-sm"
+                     placeholder="메모" style="width:120px"
+                     value="{{ e.notes or '' }}">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if resigneds %}
+  <div class="card mb-3">
+    <div class="card-header" style="background:#fff5f5;color:#9b2c2c;border-left:4px solid #e53e3e">
+      🔴 이번 달 퇴사자 ({{ resigneds|length }}명)
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-sm mb-0" style="font-size:13px">
+        <thead class="table-light">
+          <tr>
+            <th>이름코드</th><th>소속</th><th>퇴사일</th>
+            <th class="text-center">총 달력일수</th>
+            <th class="text-center">근무일수</th>
+            <th class="text-right" style="text-align:right">기본급(일할)</th>
+            <th class="text-right" style="text-align:right">연장수당(일할)</th>
+            <th>비고</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in resigneds %}
+          {% set monthly = (e.annual_salary or 0) // 12 %}
+          <tr>
+            <td><code style="color:#1a4f8a">{{ e.name_code }}</code></td>
+            <td>{{ e.department or '—' }}</td>
+            <td>{{ (e.resign_date or '')[:10] }}</td>
+            <td class="text-center">{{ total_days }}일</td>
+            <td class="text-center">
+              <input type="number" name="work_days_{{ e.id }}"
+                     class="form-control form-control-sm text-center wd-input"
+                     value="{{ e.work_days }}" min="1" max="{{ total_days }}"
+                     style="width:70px;display:inline-block"
+                     data-monthly="{{ monthly }}"
+                     data-base="{{ e.base_salary }}"
+                     data-ot="{{ e.overtime_pay }}"
+                     data-total="{{ total_days }}"
+                     data-rowid="{{ e.id }}"
+                     oninput="recalcRow(this)">
+            </td>
+            <td class="text-right" style="text-align:right">
+              <span id="base_{{ e.id }}">{{ e.base_salary | fmt_number }}</span>원
+            </td>
+            <td class="text-right" style="text-align:right">
+              <span id="ot_{{ e.id }}">{{ e.overtime_pay | fmt_number }}</span>원
+            </td>
+            <td>
+              <input type="text" name="notes_{{ e.id }}"
+                     class="form-control form-control-sm"
+                     placeholder="메모" style="width:120px"
+                     value="{{ e.notes or '' }}">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary">✅ 일할계산 확정 → Step 3으로</button>
+    <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+       class="btn btn-outline-secondary">취소</a>
+  </div>
+</form>
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <div style="font-size:40px;margin-bottom:12px">✅</div>
+    이번 달 입사자·퇴사자가 없습니다.
+    <div class="mt-3">
+      <a href="{{ url_for('payroll_step3', period_id=period.id) }}"
+         class="btn btn-primary">Step 3: 수당 처리로 이동 →</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function recalcRow(input) {
+  const wd    = parseInt(input.value) || 0;
+  const total = parseInt(input.dataset.total);
+  const annual = parseInt(input.dataset.monthly) * 12;
+  const monthly = Math.round(annual / 12);
+  // 원래 full 금액 기준으로 재계산
+  const baseFull = Math.round(monthly * parseInt(input.dataset.total === input.dataset.total ? 1 : 1));
+  // 실제로는 employee.base_salary (원본) 필요 — data 속성에서 읽기
+  // data-base, data-ot는 일할 적용 후 값이 들어오므로,
+  // 원래 full 값은 monthly 에서 역산
+  const id = input.dataset.rowid;
+  const ratio = wd / total;
+  // base + overtime full 값은 gross_full = monthly
+  // base_full = base / ratio_prev (원래 ratio로 역산 불가)
+  // 대신 employee.annual_salary / 12 전체를 기준으로 계산
+  const m = parseInt(input.dataset.monthly);
+  const grossFull = m;  // annual/12
+  // original base ratio: 여기서는 data-base/data-ot가 현재 일할값이므로
+  // 전체에서 비율 재계산
+  const curWd = parseInt(input.value) || 1;
+  // 원래 base_full, ot_full 을 위해 data-base와 data-ot를 초기 wd로 역산
+  // 초기 data-base, data-ot 저장
+  if (!input._baseFull) {
+    const initWd = parseInt(input.defaultValue) || total;
+    const initRatio = initWd / total;
+    input._baseFull = initRatio > 0 ? Math.round(parseInt(input.dataset.base) / initRatio) : parseInt(input.dataset.base);
+    input._otFull   = initRatio > 0 ? Math.round(parseInt(input.dataset.ot)   / initRatio) : parseInt(input.dataset.ot);
+  }
+  const newRatio = curWd / total;
+  const newBase = Math.round(input._baseFull * newRatio);
+  const newOt   = Math.round(input._otFull   * newRatio);
+  document.getElementById('base_' + id).textContent = newBase.toLocaleString();
+  document.getElementById('ot_'   + id).textContent = newOt.toLocaleString();
+}
+</script>
+{% endblock %}

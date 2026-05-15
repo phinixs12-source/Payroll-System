@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}{{ period.year }}년 {{ period.month }}월 급여대장 | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">📋 {{ period.year }}년 {{ period.month }}월 급여대장</h1>
+    <p class="page-subtitle">지급일: {{ period.payment_date or '미설정' }} ·
+      총 {{ entries|length }}명</p>
+  </div>
+  <a href="{{ url_for('payroll') }}" class="btn btn-outline-secondary btn-sm">← 목록</a>
+</div>
+
+<!-- 진행 단계 표시 -->
+{% set steps = [
+  ('step1', '1', '대장 생성'),
+  ('step2', '2', '입퇴사 일할'),
+  ('step3', '3', '수당 처리'),
+  ('completed', '4', '공제·확정')
+] %}
+{% set status_order = {'step1':0,'step2':1,'step3':2,'completed':3} %}
+{% set cur = status_order.get(period.status, 0) %}
+
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center gap-0">
+      {% for skey, snum, slabel in steps %}
+      {% set idx = loop.index0 %}
+      {% set done = idx < cur %}
+      {% set active = idx == cur %}
+      <div class="d-flex align-items-center" style="flex:1">
+        <div class="d-flex flex-column align-items-center" style="min-width:80px">
+          <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold"
+               style="width:36px;height:36px;font-size:14px;
+                      background:{{ '#1a4f8a' if active else ('#28a745' if done else '#e2e8f0') }};
+                      color:{{ '#fff' if (active or done) else '#718096' }}">
+            {{ '✓' if done else snum }}
+          </div>
+          <div style="font-size:11px;margin-top:4px;
+                      color:{{ '#1a4f8a' if active else ('#28a745' if done else '#aaa') }};
+                      font-weight:{{ '700' if active else '400' }}">
+            {{ slabel }}
+          </div>
+        </div>
+        {% if not loop.last %}
+        <div style="flex:1;height:2px;background:{{ '#28a745' if done else '#e2e8f0' }};margin:0 4px;margin-bottom:20px"></div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- 단계별 액션 버튼 -->
+    <div class="d-flex gap-2 mt-3 justify-content-end">
+      {% if period.status == 'step1' %}
+        {% set new_hires  = entries | selectattr('is_new_hire', 'equalto', 1) | list %}
+        {% set resigneds  = entries | selectattr('is_resigned', 'equalto', 1) | list %}
+        {% if new_hires or resigneds %}
+          <a href="{{ url_for('payroll_step2', period_id=period.id) }}"
+             class="btn btn-primary btn-sm">Step 2: 입퇴사자 일할계산 →</a>
+        {% else %}
+          <form method="POST" action="{{ url_for('payroll_step2', period_id=period.id) }}">
+            <input type="hidden" name="_skip" value="1">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">
+              Step 2 건너뛰기 (입퇴사자 없음)
+            </button>
+          </form>
+          <a href="{{ url_for('payroll_step3', period_id=period.id) }}"
+             class="btn btn-primary btn-sm">Step 3: 수당 처리 →</a>
+        {% endif %}
+      {% elif period.status == 'step2' %}
+        <a href="{{ url_for('payroll_step2', period_id=period.id) }}"
+           class="btn btn-outline-secondary btn-sm">← Step 2 재편집</a>
+        <a href="{{ url_for('payroll_step3', period_id=period.id) }}"
+           class="btn btn-primary btn-sm">Step 3: 수당 처리 →</a>
+      {% elif period.status == 'step3' %}
+        <a href="{{ url_for('payroll_step3', period_id=period.id) }}"
+           class="btn btn-outline-secondary btn-sm">← Step 3 재편집</a>
+        <a href="{{ url_for('payroll_step4', period_id=period.id) }}"
+           class="btn btn-primary btn-sm">Step 4: 공제 처리 →</a>
+      {% elif period.status == 'completed' %}
+        <span class="badge bg-success" style="font-size:13px;padding:8px 16px">✅ 확정 완료</span>
+        <a href="{{ url_for('payroll_step4', period_id=period.id) }}"
+           class="btn btn-outline-secondary btn-sm">공제 재편집</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- 급여대장 테이블 -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive" style="max-height:600px;overflow:auto">
+      <table class="table table-sm mb-0" style="font-size:12px;white-space:nowrap">
+        <thead style="position:sticky;top:0;z-index:10">
+          <tr style="background:#1a4f8a;color:#fff">
+            <th style="min-width:110px">이름코드</th>
+            <th>소속</th>
+            <th class="text-center">입사일</th>
+            <th class="text-right" style="text-align:right">연봉</th>
+            <th class="text-right" style="text-align:right">월급여</th>
+            <th class="text-right" style="text-align:right">기본급</th>
+            <th class="text-right" style="text-align:right">연장수당</th>
+            {% if period.status in ['step3','completed'] %}
+              {% for a in allowances if a.is_active %}
+              <th class="text-right" style="text-align:right">{{ a.name }}</th>
+              {% endfor %}
+              <th class="text-right" style="text-align:right;background:#0f3460">총지급</th>
+            {% endif %}
+            {% if period.status == 'completed' %}
+              {% for dn in ded_names %}
+              <th class="text-right" style="text-align:right">{{ dn }}</th>
+              {% endfor %}
+              <th class="text-right" style="text-align:right;background:#7c3aed">실지급</th>
+            {% endif %}
+            <th class="text-center">비고</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in entries %}
+          {% set monthly = (e.annual_salary or 0) // 12 %}
+          <tr {% if e.is_new_hire %}style="background:#f0fff4"
+              {% elif e.is_resigned %}style="background:#fff5f5"{% endif %}>
+            <td>
+              <code style="font-size:11px;color:#1a4f8a">{{ e.name_code }}</code>
+              {% if e.is_new_hire %}
+                <span class="badge bg-success ms-1" style="font-size:9px">입사</span>
+              {% elif e.is_resigned %}
+                <span class="badge bg-danger ms-1" style="font-size:9px">퇴사</span>
+              {% endif %}
+            </td>
+            <td>{{ e.department or '—' }}</td>
+            <td class="text-center">{{ (e.join_date or '')[:10] or '—' }}</td>
+            <td style="text-align:right">{{ e.annual_salary | fmt_number }}</td>
+            <td style="text-align:right">{{ monthly | fmt_number }}</td>
+            <td style="text-align:right">{{ e.base_salary | fmt_number }}</td>
+            <td style="text-align:right">{{ e.overtime_pay | fmt_number }}</td>
+            {% if period.status in ['step3','completed'] %}
+              {% for a in allowances if a.is_active %}
+              {% set cell = paid_map.get(e.id, {}).get(a.id) %}
+              <td style="text-align:right">
+                {% if cell %}
+                  {% if cell.is_paid %}
+                    {{ cell.amount | fmt_number }}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              {% endfor %}
+              <td style="text-align:right;font-weight:700;background:#e8f0fe">
+                {{ e.gross_pay | fmt_number }}
+              </td>
+            {% endif %}
+            {% if period.status == 'completed' %}
+              {% for dn in ded_names %}
+              <td style="text-align:right">
+                {{ ded_map.get(e.id, {}).get(dn, 0) | fmt_number }}
+              </td>
+              {% endfor %}
+              <td style="text-align:right;font-weight:700;background:#ede9fe;color:#7c3aed">
+                {{ e.net_pay | fmt_number }}
+              </td>
+            {% endif %}
+            <td class="text-center text-muted" style="font-size:11px">
+              {% if e.is_new_hire or e.is_resigned %}
+                {{ e.work_days }}/{{ e.scheduled_days }}일
+              {% endif %}
+              {{ e.notes or '' }}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="20" class="text-center py-4 text-muted">급여대장 항목이 없습니다.</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if entries %}
+        <tfoot style="background:#f7fafc;font-weight:700;position:sticky;bottom:0">
+          <tr>
+            <td colspan="3" style="text-align:right;font-size:12px">합계</td>
+            <td style="text-align:right">{{ entries | sum(attribute='annual_salary') | fmt_number }}</td>
+            <td style="text-align:right">
+              {{ (entries | sum(attribute='annual_salary') // 12) | fmt_number }}
+            </td>
+            <td style="text-align:right">{{ entries | sum(attribute='base_salary') | fmt_number }}</td>
+            <td style="text-align:right">{{ entries | sum(attribute='overtime_pay') | fmt_number }}</td>
+            {% if period.status in ['step3','completed'] %}
+              {% for a in allowances if a.is_active %}
+              <td style="text-align:right">
+                {% set col_total = namespace(v=0) %}
+                {% for e in entries %}
+                  {% set cell = paid_map.get(e.id, {}).get(a.id) %}
+                  {% if cell and cell.is_paid %}{% set col_total.v = col_total.v + cell.amount %}{% endif %}
+                {% endfor %}
+                {{ col_total.v | fmt_number }}
+              </td>
+              {% endfor %}
+              <td style="text-align:right;background:#e8f0fe">
+                {{ entries | sum(attribute='gross_pay') | fmt_number }}
+              </td>
+            {% endif %}
+            {% if period.status == 'completed' %}
+              {% for dn in ded_names %}
+              <td style="text-align:right">
+                {% set dn_total = namespace(v=0) %}
+                {% for e in entries %}{% set dn_total.v = dn_total.v + ded_map.get(e.id, {}).get(dn, 0) %}{% endfor %}
+                {{ dn_total.v | fmt_number }}
+              </td>
+              {% endfor %}
+              <td style="text-align:right;background:#ede9fe;color:#7c3aed">
+                {{ entries | sum(attribute='net_pay') | fmt_number }}
+              </td>
+            {% endif %}
+            <td></td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -27,7 +27,9 @@ def init_db():
             severance_type TEXT DEFAULT 'DB',
             scheduled_hours REAL DEFAULT 8.0,
             overtime_hours REAL DEFAULT 0.0,
+            annual_salary INTEGER DEFAULT 0,
             base_salary INTEGER DEFAULT 0,
+            ordinary_wage INTEGER DEFAULT 0,
             match_key TEXT,
             research_tax_exempt TEXT DEFAULT 'N',
             child_deduction TEXT DEFAULT 'N',
@@ -93,6 +95,77 @@ def init_db():
         )
     """)
 
+    # 급여 귀속기간 테이블
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS payroll_periods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            payment_date TEXT,
+            status TEXT DEFAULT 'step1',
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(year, month)
+        )
+    """)
+
+    # 급여대장 항목 테이블 (직원 1명 = 1행)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS payroll_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            period_id INTEGER NOT NULL,
+            employee_id INTEGER NOT NULL,
+            scheduled_days INTEGER DEFAULT 0,
+            work_days INTEGER DEFAULT 0,
+            is_new_hire INTEGER DEFAULT 0,
+            is_resigned INTEGER DEFAULT 0,
+            base_salary INTEGER DEFAULT 0,
+            overtime_pay INTEGER DEFAULT 0,
+            total_allowance INTEGER DEFAULT 0,
+            gross_pay INTEGER DEFAULT 0,
+            total_deduction INTEGER DEFAULT 0,
+            net_pay INTEGER DEFAULT 0,
+            notes TEXT,
+            FOREIGN KEY (period_id) REFERENCES payroll_periods(id) ON DELETE CASCADE,
+            FOREIGN KEY (employee_id) REFERENCES employees(id),
+            UNIQUE(period_id, employee_id)
+        )
+    """)
+
+    # 수당 지급 내역 테이블
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS payroll_allowance_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            allowance_item_id INTEGER NOT NULL,
+            amount INTEGER DEFAULT 0,
+            is_paid INTEGER DEFAULT 1,
+            FOREIGN KEY (entry_id) REFERENCES payroll_entries(id) ON DELETE CASCADE,
+            FOREIGN KEY (allowance_item_id) REFERENCES allowance_items(id),
+            UNIQUE(entry_id, allowance_item_id)
+        )
+    """)
+
+    # 공제 내역 테이블
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS payroll_deduction_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            deduction_name TEXT NOT NULL,
+            amount INTEGER DEFAULT 0,
+            FOREIGN KEY (entry_id) REFERENCES payroll_entries(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 기존 DB 컬럼 마이그레이션 (없으면 추가)
+    for col, definition in [
+        ('annual_salary', 'INTEGER DEFAULT 0'),
+        ('ordinary_wage', 'INTEGER DEFAULT 0'),
+    ]:
+        try:
+            cur.execute(f"ALTER TABLE employees ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
+
     # 기본 수당 항목 삽입
     cur.execute("SELECT COUNT(*) FROM allowance_items")
     if cur.fetchone()[0] == 0:
@@ -151,11 +224,13 @@ def create_employee(data):
     conn.execute("""
         INSERT INTO employees
         (name_code, department, contract_type, join_date, resign_date,
-         severance_type, scheduled_hours, overtime_hours, base_salary,
+         severance_type, scheduled_hours, overtime_hours,
+         annual_salary, base_salary, ordinary_wage,
          match_key, research_tax_exempt, child_deduction, child_count,
          is_exception, employee_type)
         VALUES (:name_code, :department, :contract_type, :join_date, :resign_date,
-                :severance_type, :scheduled_hours, :overtime_hours, :base_salary,
+                :severance_type, :scheduled_hours, :overtime_hours,
+                :annual_salary, :base_salary, :ordinary_wage,
                 :match_key, :research_tax_exempt, :child_deduction, :child_count,
                 :is_exception, :employee_type)
     """, data)
@@ -177,7 +252,9 @@ def upsert_employee(data):
                 department=:department, contract_type=:contract_type,
                 join_date=:join_date, resign_date=:resign_date,
                 severance_type=:severance_type, scheduled_hours=:scheduled_hours,
-                overtime_hours=:overtime_hours, base_salary=:base_salary,
+                overtime_hours=:overtime_hours,
+                annual_salary=:annual_salary, base_salary=:base_salary,
+                ordinary_wage=:ordinary_wage,
                 match_key=:match_key, research_tax_exempt=:research_tax_exempt,
                 child_deduction=:child_deduction, child_count=:child_count,
                 is_exception=:is_exception, employee_type=:employee_type,
@@ -189,11 +266,13 @@ def upsert_employee(data):
         conn.execute("""
             INSERT INTO employees
             (name_code, department, contract_type, join_date, resign_date,
-             severance_type, scheduled_hours, overtime_hours, base_salary,
+             severance_type, scheduled_hours, overtime_hours,
+             annual_salary, base_salary, ordinary_wage,
              match_key, research_tax_exempt, child_deduction, child_count,
              is_exception, employee_type)
             VALUES (:name_code, :department, :contract_type, :join_date, :resign_date,
-                    :severance_type, :scheduled_hours, :overtime_hours, :base_salary,
+                    :severance_type, :scheduled_hours, :overtime_hours,
+                    :annual_salary, :base_salary, :ordinary_wage,
                     :match_key, :research_tax_exempt, :child_deduction, :child_count,
                     :is_exception, :employee_type)
         """, data)
@@ -211,7 +290,8 @@ def update_employee(emp_id, data):
             contract_type=:contract_type, join_date=:join_date,
             resign_date=:resign_date, severance_type=:severance_type,
             scheduled_hours=:scheduled_hours, overtime_hours=:overtime_hours,
-            base_salary=:base_salary, match_key=:match_key,
+            annual_salary=:annual_salary, base_salary=:base_salary,
+            ordinary_wage=:ordinary_wage, match_key=:match_key,
             research_tax_exempt=:research_tax_exempt,
             child_deduction=:child_deduction, child_count=:child_count,
             is_exception=:is_exception, employee_type=:employee_type,
@@ -222,11 +302,12 @@ def update_employee(emp_id, data):
     conn.close()
 
 
-def update_employee_salary(name_code, base_salary):
+def update_employee_salary(name_code, annual_salary):
+    """Step2 연봉 업로드용 — annual_salary만 갱신, base_salary는 상세등록 시 계산"""
     conn = get_db()
     conn.execute(
-        "UPDATE employees SET base_salary=?, updated_at=datetime('now','localtime') WHERE name_code=?",
-        (base_salary, name_code)
+        "UPDATE employees SET annual_salary=?, updated_at=datetime('now','localtime') WHERE name_code=?",
+        (annual_salary, name_code)
     )
     conn.commit()
     conn.close()
@@ -350,3 +431,209 @@ def get_all_settings():
     rows = conn.execute("SELECT * FROM settings").fetchall()
     conn.close()
     return {r['key']: r['value'] for r in rows}
+
+
+# ─── 급여 귀속기간 ──────────────────────────────────────────
+
+def get_all_payroll_periods():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM payroll_periods ORDER BY year DESC, month DESC"
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_payroll_period(period_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM payroll_periods WHERE id=?", (period_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def get_payroll_period_by_ym(year, month):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM payroll_periods WHERE year=? AND month=?", (year, month)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def create_payroll_period(year, month, payment_date):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO payroll_periods (year, month, payment_date) VALUES (?, ?, ?)",
+        (year, month, payment_date)
+    )
+    conn.commit()
+    period_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return period_id
+
+
+def update_payroll_period_status(period_id, status):
+    conn = get_db()
+    conn.execute("UPDATE payroll_periods SET status=? WHERE id=?", (status, period_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_payroll_period(period_id):
+    conn = get_db()
+    conn.execute("DELETE FROM payroll_periods WHERE id=?", (period_id,))
+    conn.commit()
+    conn.close()
+
+
+# ─── 급여대장 항목 ──────────────────────────────────────────
+
+def get_payroll_entries(period_id):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT pe.*, e.name_code, e.department, e.join_date, e.resign_date,
+               e.annual_salary, e.ordinary_wage, e.employee_type,
+               e.scheduled_hours, e.overtime_hours
+        FROM payroll_entries pe
+        JOIN employees e ON pe.employee_id = e.id
+        WHERE pe.period_id = ?
+        ORDER BY e.department, e.name_code
+    """, (period_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+def get_payroll_entry(entry_id):
+    conn = get_db()
+    row = conn.execute("""
+        SELECT pe.*, e.name_code, e.department, e.join_date, e.resign_date,
+               e.annual_salary, e.base_salary AS emp_base, e.ordinary_wage
+        FROM payroll_entries pe
+        JOIN employees e ON pe.employee_id = e.id
+        WHERE pe.id = ?
+    """, (entry_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def create_payroll_entry(data):
+    conn = get_db()
+    conn.execute("""
+        INSERT OR IGNORE INTO payroll_entries
+        (period_id, employee_id, scheduled_days, work_days,
+         is_new_hire, is_resigned, base_salary, overtime_pay, gross_pay, net_pay)
+        VALUES (:period_id, :employee_id, :scheduled_days, :work_days,
+                :is_new_hire, :is_resigned, :base_salary, :overtime_pay, :gross_pay, :net_pay)
+    """, data)
+    conn.commit()
+    conn.close()
+
+
+def update_payroll_entry(entry_id, data):
+    conn = get_db()
+    conn.execute("""
+        UPDATE payroll_entries SET
+            work_days=:work_days, is_new_hire=:is_new_hire, is_resigned=:is_resigned,
+            base_salary=:base_salary, overtime_pay=:overtime_pay,
+            gross_pay=:gross_pay, notes=:notes
+        WHERE id=:id
+    """, {**data, 'id': entry_id})
+    conn.commit()
+    conn.close()
+
+
+def recalculate_entry_totals(entry_id):
+    """수당 합산 후 총지급/실지급 재계산"""
+    conn = get_db()
+    allowance_total = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM payroll_allowance_entries WHERE entry_id=? AND is_paid=1",
+        (entry_id,)
+    ).fetchone()[0]
+    deduction_total = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM payroll_deduction_entries WHERE entry_id=?",
+        (entry_id,)
+    ).fetchone()[0]
+    base = conn.execute(
+        "SELECT base_salary, overtime_pay FROM payroll_entries WHERE id=?", (entry_id,)
+    ).fetchone()
+    gross = base['base_salary'] + base['overtime_pay'] + allowance_total
+    net   = gross - deduction_total
+    conn.execute("""
+        UPDATE payroll_entries
+        SET total_allowance=?, gross_pay=?, total_deduction=?, net_pay=?
+        WHERE id=?
+    """, (allowance_total, gross, deduction_total, net, entry_id))
+    conn.commit()
+    conn.close()
+
+
+# ─── 수당 지급 내역 ──────────────────────────────────────────
+
+def get_payroll_allowances_by_period(period_id):
+    """{ entry_id: { allowance_item_id: {amount, is_paid} } }"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT pae.entry_id, pae.allowance_item_id, pae.amount, pae.is_paid
+        FROM payroll_allowance_entries pae
+        JOIN payroll_entries pe ON pae.entry_id = pe.id
+        WHERE pe.period_id = ?
+    """, (period_id,)).fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        result.setdefault(r['entry_id'], {})[r['allowance_item_id']] = {
+            'amount': r['amount'], 'is_paid': r['is_paid']
+        }
+    return result
+
+
+def upsert_payroll_allowance(entry_id, allowance_item_id, amount, is_paid=1):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO payroll_allowance_entries (entry_id, allowance_item_id, amount, is_paid)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(entry_id, allowance_item_id)
+        DO UPDATE SET amount=excluded.amount, is_paid=excluded.is_paid
+    """, (entry_id, allowance_item_id, amount, is_paid))
+    conn.commit()
+    conn.close()
+
+
+# ─── 공제 내역 ──────────────────────────────────────────────
+
+def get_payroll_deductions_by_period(period_id):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT pde.*
+        FROM payroll_deduction_entries pde
+        JOIN payroll_entries pe ON pde.entry_id = pe.id
+        WHERE pe.period_id = ?
+        ORDER BY pde.deduction_name
+    """, (period_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+def upsert_payroll_deduction(entry_id, deduction_name, amount):
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id FROM payroll_deduction_entries WHERE entry_id=? AND deduction_name=?",
+        (entry_id, deduction_name)
+    ).fetchone()
+    if existing:
+        conn.execute("UPDATE payroll_deduction_entries SET amount=? WHERE id=?",
+                     (amount, existing['id']))
+    else:
+        conn.execute(
+            "INSERT INTO payroll_deduction_entries (entry_id, deduction_name, amount) VALUES (?,?,?)",
+            (entry_id, deduction_name, amount)
+        )
+    conn.commit()
+    conn.close()
+
+
+def delete_payroll_deductions_by_entry(entry_id):
+    conn = get_db()
+    conn.execute("DELETE FROM payroll_deduction_entries WHERE entry_id=?", (entry_id,))
+    conn.commit()
+    conn.close()

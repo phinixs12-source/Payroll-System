@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Step 4: 공제 처리 | {{ period.year }}년 {{ period.month }}월{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">Step 4: 공제 처리</h1>
+    <p class="page-subtitle">{{ period.year }}년 {{ period.month }}월 공제 금액을 입력하고 급여대장을 확정합니다.</p>
+  </div>
+  <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+     class="btn btn-outline-secondary btn-sm">← 대장으로</a>
+</div>
+
+<form method="POST" id="step4Form">
+  <!-- 공제 항목 설정 -->
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>공제 항목 설정</span>
+      <button type="button" class="btn btn-outline-primary btn-sm" onclick="addDedItem()">
+        + 항목 추가
+      </button>
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-2" id="dedItems">
+        {% for dn in ded_names %}
+        <div class="d-flex align-items-center gap-1 ded-item">
+          <input type="text" class="form-control form-control-sm" value="{{ dn }}"
+                 style="width:120px" placeholder="항목명" required>
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  onclick="this.closest('.ded-item').remove()">✕</button>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="form-text mt-2">항목을 추가하거나 삭제한 후 아래 표에 금액을 입력하세요.</div>
+      <button type="button" class="btn btn-outline-secondary btn-sm mt-2"
+              onclick="renderTable()">
+        🔄 표 업데이트
+      </button>
+    </div>
+  </div>
+
+  <!-- 공제 금액 입력 테이블 -->
+  <div class="card mb-3">
+    <div class="card-body p-0">
+      <div class="table-responsive" style="max-height:500px;overflow:auto">
+        <table class="table table-sm mb-0" id="dedTable" style="font-size:12px;white-space:nowrap">
+          <thead style="position:sticky;top:0;z-index:10;background:#7c3aed;color:#fff">
+            <tr>
+              <th style="min-width:110px">이름코드</th>
+              <th>소속</th>
+              <th style="text-align:right;min-width:100px">총지급</th>
+              {% for dn in ded_names %}
+              <th style="text-align:right;min-width:100px">{{ dn }}</th>
+              {% endfor %}
+              <th style="text-align:right;min-width:100px">총공제</th>
+              <th style="text-align:right;min-width:110px;background:#5b21b6">실지급</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in entries %}
+            <tr>
+              <td><code style="font-size:11px;color:#1a4f8a">{{ e.name_code }}</code></td>
+              <td>{{ e.department or '—' }}</td>
+              <td style="text-align:right;font-weight:600">{{ e.gross_pay | fmt_number }}</td>
+              {% for dn in ded_names %}
+              <td style="padding:3px 6px">
+                <input type="text"
+                       name="ded_{{ e.id }}_{{ dn }}"
+                       class="form-control form-control-sm text-end number-input ded-input"
+                       value="{{ ded_map.get(e.id, {}).get(dn, 0) | fmt_number }}"
+                       data-gross="{{ e.gross_pay }}"
+                       data-entryid="{{ e.id }}"
+                       style="width:90px"
+                       oninput="updateRowNet(this)">
+              </td>
+              {% endfor %}
+              <td style="text-align:right;font-weight:600" id="ded_total_{{ e.id }}">
+                {{ e.total_deduction | fmt_number }}
+              </td>
+              <td style="text-align:right;font-weight:700;color:#7c3aed" id="net_{{ e.id }}">
+                {{ e.net_pay | fmt_number }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 공제 항목명 hidden 전송 -->
+  <input type="hidden" name="ded_names_list" id="dedNamesList"
+         value="{{ ded_names | join(',') }}">
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">
+      ✅ 공제 확정 & 급여대장 완료
+    </button>
+    <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+       class="btn btn-outline-secondary">취소</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 숫자 콤마 포맷
+document.querySelectorAll('.number-input').forEach(input => {
+  input.addEventListener('input', function() {
+    let v = this.value.replace(/[^0-9]/g, '');
+    this.value = v ? parseInt(v).toLocaleString() : '';
+  });
+});
+
+// 행별 실지급 실시간 업데이트
+function updateRowNet(changedInput) {
+  const entryId = changedInput.dataset.entryid;
+  const gross = parseInt(changedInput.dataset.gross) || 0;
+  let totalDed = 0;
+  document.querySelectorAll(`.ded-input[data-entryid="${entryId}"]`).forEach(inp => {
+    totalDed += parseInt((inp.value || '0').replace(/,/g, '')) || 0;
+  });
+  const dedEl = document.getElementById('ded_total_' + entryId);
+  const netEl = document.getElementById('net_' + entryId);
+  if (dedEl) dedEl.textContent = totalDed.toLocaleString();
+  if (netEl) netEl.textContent = Math.max(0, gross - totalDed).toLocaleString();
+}
+
+// 공제 항목 추가
+function addDedItem() {
+  const container = document.getElementById('dedItems');
+  const div = document.createElement('div');
+  div.className = 'd-flex align-items-center gap-1 ded-item';
+  div.innerHTML = `<input type="text" class="form-control form-control-sm"
+                          style="width:120px" placeholder="항목명" required>
+                   <button type="button" class="btn btn-sm btn-outline-danger"
+                           onclick="this.closest('.ded-item').remove()">✕</button>`;
+  container.appendChild(div);
+}
+
+// 제출 전 공제 항목명 수집
+function prepareSubmit() {
+  const names = [];
+  document.querySelectorAll('#dedItems .ded-item input').forEach(inp => {
+    const v = inp.value.trim();
+    if (v) names.push(v);
+  });
+  document.getElementById('dedNamesList').value = names.join(',');
+}
+</script>
+{% endblock %}

@@ -8,6 +8,9 @@
     <p class="page-subtitle">등록된 직원 목록입니다. 총 {{ employees|length }}명</p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
+    <button id="deleteToggleBtn" class="btn btn-outline-danger btn-sm" onclick="toggleDeleteMode()">
+      🗑 삭제
+    </button>
     <a href="{{ url_for('employee_register') }}" class="btn btn-outline-primary btn-sm">🔐 인원 등록 (엑셀)</a>
     <a href="{{ url_for('employee_bulk_upload') }}" class="btn btn-outline-secondary btn-sm">📋 상세정보 일괄등록</a>
     <a href="{{ url_for('employee_new') }}" class="btn btn-primary btn-sm">+ 개별 등록</a>
@@ -32,12 +35,34 @@
   </div>
 </div>
 
+<!-- 삭제 선택 모드 액션 바 (숨김) -->
+<div id="deleteActionBar" style="display:none" class="mb-2">
+  <form method="POST" action="{{ url_for('employee_bulk_delete') }}"
+        id="bulkDeleteForm"
+        onsubmit="return confirmBulkDelete()">
+    <div class="d-flex gap-2 align-items-center p-3 rounded"
+         style="background:#fff5f5;border:1px solid #fed7d7">
+      <span id="selectedCount" class="fw-bold text-danger" style="font-size:13px">0명 선택됨</span>
+      <button type="submit" class="btn btn-danger btn-sm">선택 삭제</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleDeleteMode()">
+        취소
+      </button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="selectAll()">
+        전체 선택
+      </button>
+    </div>
+  </form>
+</div>
+
 <div class="card">
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table mb-0" id="empTable">
         <thead>
           <tr>
+            <th id="checkboxCol" style="display:none;width:40px" class="text-center">
+              <input type="checkbox" id="masterCheck" onchange="toggleMaster(this)">
+            </th>
             <th>이름코드</th>
             <th>구분</th>
             <th>부서</th>
@@ -50,7 +75,6 @@
             <th class="text-center">자녀</th>
             <th class="text-center">예외</th>
             <th class="text-center">상태</th>
-            <th class="text-center">관리</th>
           </tr>
         </thead>
         <tbody>
@@ -60,12 +84,22 @@
               data-type="{{ emp.employee_type or '직원' }}"
               data-exception="{{ emp.is_exception }}"
               data-search="{{ emp.name_code }} {{ emp.department }}">
-            <td>
-              <code style="font-size:13px;color:#1a4f8a;font-weight:600">{{ emp.name_code }}</code>
+            <!-- 삭제 체크박스 (숨김) -->
+            <td class="chk-cell text-center" style="display:none">
+              <input type="checkbox" class="emp-checkbox form-check-input"
+                     name="delete_ids" value="{{ emp.id }}"
+                     form="bulkDeleteForm"
+                     onchange="updateSelectedCount()">
             </td>
             <td>
-              <span class="badge {{ 'bg-purple' if emp.employee_type == '임원' else 'bg-light text-dark border' }}"
-                    style="font-size:11px;{% if emp.employee_type == '임원' %}background:#7c3aed!important;color:#fff!important{% endif %}">
+              <a href="{{ url_for('employee_edit', emp_id=emp.id) }}"
+                 class="text-decoration-none">
+                <code style="font-size:13px;color:#1a4f8a;font-weight:600">{{ emp.name_code }}</code>
+              </a>
+            </td>
+            <td>
+              <span class="badge"
+                    style="font-size:11px;{% if emp.employee_type == '임원' %}background:#7c3aed;color:#fff{% else %}background:#e2e8f0;color:#4a5568{% endif %}">
                 {{ emp.employee_type or '직원' }}
               </span>
             </td>
@@ -73,8 +107,8 @@
             <td>
               <span class="badge-contract badge-{{ emp.contract_type }}">{{ emp.contract_type }}</span>
             </td>
-            <td>{{ emp.join_date or '—' }}</td>
-            <td>{{ emp.resign_date or '—' }}</td>
+            <td>{{ (emp.join_date or '')[:10] or '—' }}</td>
+            <td>{{ (emp.resign_date or '')[:10] or '—' }}</td>
             <td>
               <span class="badge-severance badge-{{ emp.severance_type }}">{{ emp.severance_type }}</span>
             </td>
@@ -107,17 +141,6 @@
                 <span class="status-badge status-active">재직</span>
               {% endif %}
             </td>
-            <td class="text-center">
-              <div class="btn-action justify-content-center">
-                <a href="{{ url_for('employee_edit', emp_id=emp.id) }}"
-                   class="btn btn-sm btn-outline-primary">수정</a>
-                <form method="POST"
-                      action="{{ url_for('employee_delete', emp_id=emp.id) }}"
-                      onsubmit="return confirm('{{ emp.name_code }} 인원을 삭제하시겠습니까?')">
-                  <button type="submit" class="btn btn-sm btn-outline-danger">삭제</button>
-                </form>
-              </div>
-            </td>
           </tr>
           {% else %}
           <tr>
@@ -136,6 +159,7 @@
 
 {% block scripts %}
 <script>
+// ─── 필터 & 검색 ──────────────────────────────────────────
 document.querySelectorAll('.filter-btn').forEach(btn => {
   btn.addEventListener('click', function() {
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -159,5 +183,55 @@ document.getElementById('searchInput').addEventListener('input', function() {
     row.style.display = row.dataset.search.toLowerCase().includes(q) ? '' : 'none';
   });
 });
+
+// ─── 삭제 모드 ────────────────────────────────────────────
+let deleteMode = false;
+
+function toggleDeleteMode() {
+  deleteMode = !deleteMode;
+  const bar  = document.getElementById('deleteActionBar');
+  const btn  = document.getElementById('deleteToggleBtn');
+  const hdr  = document.getElementById('checkboxCol');
+  bar.style.display = deleteMode ? '' : 'none';
+  btn.textContent   = deleteMode ? '✕ 취소' : '🗑 삭제';
+  btn.className     = deleteMode
+    ? 'btn btn-danger btn-sm'
+    : 'btn btn-outline-danger btn-sm';
+  hdr.style.display = deleteMode ? '' : 'none';
+  document.querySelectorAll('.chk-cell').forEach(cell => {
+    cell.style.display = deleteMode ? '' : 'none';
+  });
+  if (!deleteMode) {
+    document.querySelectorAll('.emp-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('masterCheck').checked = false;
+    updateSelectedCount();
+  }
+}
+
+function updateSelectedCount() {
+  const count = document.querySelectorAll('.emp-checkbox:checked').length;
+  document.getElementById('selectedCount').textContent = count + '명 선택됨';
+}
+
+function toggleMaster(master) {
+  document.querySelectorAll('.emp-checkbox').forEach(cb => {
+    if (cb.closest('tr').style.display !== 'none') {
+      cb.checked = master.checked;
+    }
+  });
+  updateSelectedCount();
+}
+
+function selectAll() {
+  document.querySelectorAll('.emp-checkbox').forEach(cb => cb.checked = true);
+  document.getElementById('masterCheck').checked = true;
+  updateSelectedCount();
+}
+
+function confirmBulkDelete() {
+  const count = document.querySelectorAll('.emp-checkbox:checked').length;
+  if (count === 0) { alert('삭제할 인원을 선택하세요.'); return false; }
+  return confirm(count + '명을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.');
+}
 </script>
 {% endblock %}

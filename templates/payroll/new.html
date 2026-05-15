@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}급여대장 생성 | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">➕ 새 급여대장 생성</h1>
+    <p class="page-subtitle">귀속연월과 지급일을 설정하고 급여대장을 생성합니다.</p>
+  </div>
+  <a href="{{ url_for('payroll') }}" class="btn btn-outline-secondary btn-sm">← 목록</a>
+</div>
+
+<form method="POST">
+  <div class="row g-3 justify-content-center">
+    <div class="col-lg-6">
+      <div class="card">
+        <div class="card-header">기본 설정</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label fw-bold">귀속연도 <span class="text-danger">*</span></label>
+              <select name="year" class="form-select">
+                {% for y in range(today.year - 1, today.year + 2) %}
+                <option value="{{ y }}" {{ 'selected' if y == today.year }}>{{ y }}년</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-bold">귀속월 <span class="text-danger">*</span></label>
+              <select name="month" class="form-select">
+                {% for m in range(1, 13) %}
+                <option value="{{ m }}" {{ 'selected' if m == today.month }}>{{ m }}월</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-bold">지급일</label>
+              <input type="date" name="payment_date" class="form-control"
+                     value="{{ today.strftime('%Y-%m-25') }}">
+              <div class="form-text">일반적으로 귀속월 말일 또는 다음달 특정일</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-header">생성 방식</div>
+        <div class="card-body">
+          <div class="form-check mb-3 p-3 rounded" style="background:#f0f7ff;border:1px solid #bee3f8">
+            <input type="radio" name="mode" value="new" class="form-check-input" id="modeNew" checked>
+            <label class="form-check-label fw-bold" for="modeNew">신규 생성</label>
+            <div class="text-muted mt-1" style="font-size:13px">
+              현재 기초자료에 등록된 재직자 전원을 기준으로 급여대장을 새로 만듭니다.
+            </div>
+          </div>
+          <div class="form-check p-3 rounded {{ '' if has_prev else 'opacity-50' }}"
+               style="background:#f7f7f7;border:1px solid #e2e8f0">
+            <input type="radio" name="mode" value="copy" class="form-check-input"
+                   id="modeCopy" {{ 'disabled' if not has_prev }}>
+            <label class="form-check-label fw-bold" for="modeCopy">전월 인원 복사</label>
+            <div class="text-muted mt-1" style="font-size:13px">
+              전월 급여대장의 인원 목록을 기준으로 생성합니다. (수당·공제 제외, 기본급만 최신값 반영)
+              {% if not has_prev %}
+              <span class="text-danger d-block mt-1">⚠️ 전월 귀속기간이 없어 사용 불가</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary">급여대장 생성</button>
+        <a href="{{ url_for('payroll') }}" class="btn btn-outline-secondary">취소</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
