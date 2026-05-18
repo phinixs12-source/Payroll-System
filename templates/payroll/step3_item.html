@@ -7,8 +7,15 @@
     <h1 class="page-title">Step 3: 수당 처리</h1>
     <p class="page-subtitle">{{ period.year }}년 {{ period.month }}월 · 수당별로 확인 후 저장하세요.</p>
   </div>
-  <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
-     class="btn btn-outline-secondary btn-sm">← 대장으로</a>
+  <div class="d-flex gap-2">
+    <form method="POST" action="{{ url_for('payroll_refresh', period_id=period.id) }}"
+          onsubmit="return confirm('직원 DB에서 기본급·연장수당을 재적용합니다.\n수당 입력값은 유지됩니다.')">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <button type="submit" class="btn btn-outline-warning btn-sm">🔄 새로고침</button>
+    </form>
+    <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+       class="btn btn-outline-secondary btn-sm">← 대장으로</a>
+  </div>
 </div>
 
 <!-- 수당 진행 표시 -->

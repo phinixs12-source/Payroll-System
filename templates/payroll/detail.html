@@ -8,7 +8,16 @@
     <p class="page-subtitle">지급일: {{ period.payment_date or '미설정' }} ·
       총 {{ entries|length }}명</p>
   </div>
-  <a href="{{ url_for('payroll') }}" class="btn btn-outline-secondary btn-sm">← 목록</a>
+  <div class="d-flex gap-2 align-items-center">
+    <form method="POST" action="{{ url_for('payroll_refresh', period_id=period.id) }}"
+          onsubmit="return confirm('직원 DB에서 기본급·연장수당을 재적용합니다.\n수당·공제 입력값은 유지됩니다.\n계속하시겠습니까?')">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <button type="submit" class="btn btn-outline-warning btn-sm" title="직원 DB 기준으로 기본급 재적용">
+        🔄 직원정보 새로고침
+      </button>
+    </form>
+    <a href="{{ url_for('payroll') }}" class="btn btn-outline-secondary btn-sm">← 목록</a>
+  </div>
 </div>
 
 <!-- 진행 단계 표시 -->

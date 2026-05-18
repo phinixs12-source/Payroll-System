@@ -1011,6 +1011,51 @@ def payroll_step3_item(period_id, allowance_id):
                            load_prev=load_prev)
 
 
+def _refresh_entry_from_employee(entry):
+    """직원 DB 기준으로 급여대장 기본급/연장수당 재적용 (수당·공제 건드리지 않음)"""
+    emp = db.get_employee(entry['employee_id'])
+    if not emp:
+        return
+    total_days = entry['scheduled_days'] or 1
+    work_days  = entry['work_days']
+
+    monthly    = round((emp['annual_salary'] or 0) / 12)
+    base_full  = emp['base_salary'] or 0
+    ot_full    = max(0, monthly - base_full)
+
+    if entry['is_new_hire'] or entry['is_resigned']:
+        ratio = work_days / total_days
+        base  = round(base_full * ratio)
+        ot    = round(ot_full   * ratio)
+    else:
+        base = base_full
+        ot   = ot_full
+
+    import sqlite3 as _s3
+    conn = db.get_db()
+    conn.execute(
+        "UPDATE payroll_entries SET base_salary=?, overtime_pay=? WHERE id=?",
+        (base, ot, entry['id'])
+    )
+    conn.commit()
+    conn.close()
+    db.recalculate_entry_totals(entry['id'])
+
+
+@app.route('/payroll/<int:period_id>/refresh', methods=['POST'])
+def payroll_refresh(period_id):
+    """직원 DB에서 급여 기본값 재적용 (기본급·연장수당만, 수당·공제 보존)"""
+    period = db.get_payroll_period(period_id)
+    if not period:
+        return redirect(url_for('payroll'))
+    entries = db.get_payroll_entries(period_id)
+    for entry in entries:
+        _refresh_entry_from_employee(entry)
+    flash(f'{len(entries)}명 기본급·연장수당을 직원 DB 기준으로 재적용했습니다.', 'success')
+    next_url = request.form.get('next') or url_for('payroll_detail', period_id=period_id)
+    return redirect(next_url)
+
+
 def _find_prev_entry_allowance(prev_paid_map, prev_period_id, employee_id, allowance_id):
     """전월 급여대장에서 같은 직원의 수당 금액 찾기"""
     if not prev_period_id:
