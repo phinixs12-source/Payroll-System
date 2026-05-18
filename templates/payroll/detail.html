@@ -81,6 +81,8 @@
         <span class="badge bg-success" style="font-size:13px;padding:8px 16px">✅ 확정 완료</span>
         <a href="{{ url_for('payroll_step4', period_id=period.id) }}"
            class="btn btn-outline-secondary btn-sm">공제 재편집</a>
+        <a href="{{ url_for('payroll_export', period_id=period.id) }}"
+           class="btn btn-success btn-sm">📥 엑셀 출력</a>
       {% endif %}
     </div>
   </div>

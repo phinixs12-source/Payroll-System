@@ -1042,6 +1042,286 @@ def payroll_step4(period_id):
                            ded_items=ded_items, ded_map=ded_map)
 
 
+@app.route('/payroll/<int:period_id>/export')
+def payroll_export(period_id):
+    """급여대장 엑셀 출력"""
+    period = db.get_payroll_period(period_id)
+    if not period:
+        flash('급여대장을 찾을 수 없습니다.', 'danger')
+        return redirect(url_for('payroll'))
+
+    entries    = db.get_payroll_entries(period_id)
+    allowances = db.get_all_allowances()   # 전체 (비활성 포함 — 저장된 데이터 매핑용)
+    paid_map   = db.get_payroll_allowances_by_period(period_id)   # {entry_id: {aid: {amount, is_paid}}}
+    ded_rows   = db.get_payroll_deductions_by_period(period_id)   # list of {entry_id, deduction_name, amount}
+
+    # 공제 컬럼 목록 (저장된 데이터 기준으로 정렬 보장)
+    ded_items_ordered = db.get_all_deductions()
+    ded_names = [d['name'] for d in ded_items_ordered if d['is_active']]
+    # 혹시 저장된 공제명 중 목록에 없는 것도 추가
+    saved_ded_names = list(dict.fromkeys([r['deduction_name'] for r in ded_rows]))
+    for n in saved_ded_names:
+        if n not in ded_names:
+            ded_names.append(n)
+
+    # 공제 맵: {entry_id: {deduction_name: amount}}
+    ded_map = {}
+    for r in ded_rows:
+        ded_map.setdefault(r['entry_id'], {})[r['deduction_name']] = r['amount']
+
+    # 수당 컬럼 목록 (활성화된 것 + 저장된 데이터에 있는 것)
+    active_allowance_ids = {a['id']: a['name'] for a in allowances if a['is_active']}
+
+    company_name = db.get_setting('company_name') or '회사명'
+
+    # ── 워크북 생성 ──────────────────────────────────────────
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f'{period["year"]}년{period["month"]:02d}월_급여대장'
+
+    # 스타일 정의
+    thin  = Side(style='thin',   color='CCCCCC')
+    thick = Side(style='medium', color='888888')
+    def cell_border(thick_left=False, thick_right=False):
+        l = thick if thick_left  else thin
+        r = thick if thick_right else thin
+        return Border(left=l, right=r, top=thin, bottom=thin)
+
+    purple_fill  = PatternFill('solid', fgColor='7C3AED')
+    violet_fill  = PatternFill('solid', fgColor='5B21B6')
+    indigo_fill  = PatternFill('solid', fgColor='4C1D95')
+    green_fill   = PatternFill('solid', fgColor='059669')
+    gray_fill    = PatternFill('solid', fgColor='F3F4F6')
+    hire_fill    = PatternFill('solid', fgColor='F0FFF4')
+    resign_fill  = PatternFill('solid', fgColor='FFF5F5')
+    white_fill   = PatternFill('solid', fgColor='FFFFFF')
+
+    bold_white  = Font(bold=True, color='FFFFFF', size=10)
+    bold_black  = Font(bold=True, color='1A202C', size=10)
+    normal_font = Font(size=10)
+    code_font   = Font(name='Courier New', size=9, color='1A4F8A')
+    total_font  = Font(bold=True, size=10, color='1A202C')
+
+    center = Alignment(horizontal='center', vertical='center')
+    right  = Alignment(horizontal='right',  vertical='center')
+    left_a = Alignment(horizontal='left',   vertical='center')
+
+    # ── 행 1: 회사명 + 귀속기간 ─────────────────────────────
+    total_cols = 7 + len(active_allowance_ids) + 2 + len(ded_names) + 2
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
+    title_cell = ws.cell(row=1, column=1,
+                         value=f'{company_name}  {period["year"]}년 {period["month"]}월 급여대장')
+    title_cell.font      = Font(bold=True, size=14, color='1A202C')
+    title_cell.alignment = left_a
+    ws.row_dimensions[1].height = 28
+
+    # ── 행 2: 지급일 + 인원 ─────────────────────────────────
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=total_cols)
+    payment_str = period['payment_date'] or '—'
+    ws.cell(row=2, column=1,
+            value=f'지급일: {payment_str}    총 {len(entries)}명    (단위: 원)').font = Font(size=10, color='718096')
+    ws.row_dimensions[2].height = 18
+
+    # ── 행 3: 헤더 ─────────────────────────────────────────
+    FIXED_COLS   = ['이름코드', '소속', '구분', '소정일수', '근무일수', '기본급', '연장수당']
+    allow_names  = [active_allowance_ids[aid] for aid in active_allowance_ids]
+    ALLOW_COLS   = allow_names + ['수당합계', '총지급']
+    DED_COLS     = ded_names   + ['공제합계', '실지급']
+    ALL_HEADERS  = FIXED_COLS + ALLOW_COLS + DED_COLS
+
+    header_row = 3
+    ws.row_dimensions[header_row].height = 22
+    col_idx = 1
+    # 고정 컬럼
+    for h in FIXED_COLS:
+        c = ws.cell(row=header_row, column=col_idx, value=h)
+        c.fill = c.fill = purple_fill
+        c.font = bold_white
+        c.alignment = center
+        c.border = cell_border()
+        col_idx += 1
+    # 수당 컬럼
+    for h in allow_names:
+        c = ws.cell(row=header_row, column=col_idx, value=h)
+        c.fill = purple_fill
+        c.font = bold_white
+        c.alignment = center
+        c.border = cell_border()
+        col_idx += 1
+    # 수당합계
+    c = ws.cell(row=header_row, column=col_idx, value='수당합계')
+    c.fill = violet_fill; c.font = bold_white; c.alignment = center; c.border = cell_border(thick_left=True)
+    col_idx += 1
+    # 총지급
+    c = ws.cell(row=header_row, column=col_idx, value='총지급')
+    c.fill = violet_fill; c.font = bold_white; c.alignment = center; c.border = cell_border()
+    col_total_gross = col_idx
+    col_idx += 1
+    # 공제 컬럼
+    for h in ded_names:
+        c = ws.cell(row=header_row, column=col_idx, value=h)
+        c.fill = purple_fill; c.font = bold_white; c.alignment = center; c.border = cell_border(thick_left=(h == ded_names[0]) if ded_names else False)
+        col_idx += 1
+    # 공제합계
+    c = ws.cell(row=header_row, column=col_idx, value='공제합계')
+    c.fill = indigo_fill; c.font = bold_white; c.alignment = center; c.border = cell_border(thick_left=True)
+    col_idx += 1
+    # 실지급
+    c = ws.cell(row=header_row, column=col_idx, value='실지급')
+    c.fill = indigo_fill; c.font = bold_white; c.alignment = center; c.border = cell_border()
+
+    # ── 데이터 행 ────────────────────────────────────────────
+    # 합계 누적용
+    sum_base = sum_ot = sum_allow_total = sum_gross = sum_net = 0
+    sum_allow_by_id  = {aid: 0 for aid in active_allowance_ids}
+    sum_ded_by_name  = {n: 0 for n in ded_names}
+    sum_ded_total    = 0
+
+    for data_row, entry in enumerate(entries, start=4):
+        ws.row_dimensions[data_row].height = 18
+        row_fill = hire_fill if entry['is_new_hire'] else (resign_fill if entry['is_resigned'] else white_fill)
+
+        col_idx = 1
+
+        def wc(val, align=right, fmt=None, bold=False, fill=None):
+            nonlocal col_idx
+            c = ws.cell(row=data_row, column=col_idx, value=val)
+            c.alignment = align
+            c.font = Font(bold=bold, size=10)
+            c.fill = fill or row_fill
+            c.border = cell_border()
+            if fmt:
+                c.number_format = fmt
+            col_idx += 1
+            return c
+
+        # 이름코드
+        c = ws.cell(row=data_row, column=col_idx, value=entry['name_code'])
+        c.font = code_font; c.alignment = left_a; c.fill = row_fill; c.border = cell_border(); col_idx += 1
+        # 소속
+        wc(entry['department'] or '—', align=left_a)
+        # 구분
+        label = '입사' if entry['is_new_hire'] else ('퇴사' if entry['is_resigned'] else '재직')
+        wc(label, align=center)
+        # 소정일수 / 근무일수
+        wc(entry['scheduled_days'], align=center)
+        wc(entry['work_days'],      align=center)
+        # 기본급 / 연장수당
+        wc(entry['base_salary'],   fmt='#,##0')
+        wc(entry['overtime_pay'],  fmt='#,##0')
+
+        sum_base += entry['base_salary']
+        sum_ot   += entry['overtime_pay']
+
+        # 수당 컬럼
+        allow_total_entry = 0
+        for aid in active_allowance_ids:
+            amt_data = paid_map.get(entry['id'], {}).get(aid)
+            amt = amt_data['amount'] if (amt_data and amt_data['is_paid']) else 0
+            wc(amt or None, fmt='#,##0')
+            sum_allow_by_id[aid] += amt
+            allow_total_entry    += amt
+        # 수당합계
+        c = ws.cell(row=data_row, column=col_idx, value=allow_total_entry or None)
+        c.font = Font(bold=True, size=10); c.alignment = right; c.fill = row_fill
+        c.border = cell_border(thick_left=True); c.number_format = '#,##0'; col_idx += 1
+        sum_allow_total += allow_total_entry
+        # 총지급
+        gross = entry['gross_pay']
+        c = ws.cell(row=data_row, column=col_idx, value=gross)
+        c.font = Font(bold=True, size=10); c.alignment = right; c.fill = row_fill
+        c.border = cell_border(); c.number_format = '#,##0'; col_idx += 1
+        sum_gross += gross
+
+        # 공제 컬럼
+        ded_total_entry = 0
+        first_ded = True
+        for dn in ded_names:
+            amt = ded_map.get(entry['id'], {}).get(dn, 0)
+            c = ws.cell(row=data_row, column=col_idx, value=amt or None)
+            c.alignment = right; c.fill = row_fill; c.number_format = '#,##0'
+            c.border = cell_border(thick_left=first_ded); c.font = normal_font
+            col_idx += 1; first_ded = False
+            sum_ded_by_name[dn] += amt
+            ded_total_entry     += amt
+        # 공제합계
+        c = ws.cell(row=data_row, column=col_idx, value=ded_total_entry or None)
+        c.font = Font(bold=True, size=10); c.alignment = right; c.fill = row_fill
+        c.border = cell_border(thick_left=True); c.number_format = '#,##0'; col_idx += 1
+        sum_ded_total += ded_total_entry
+        # 실지급
+        net = entry['net_pay']
+        c = ws.cell(row=data_row, column=col_idx, value=net)
+        c.font = Font(bold=True, size=10, color='4C1D95'); c.alignment = right; c.fill = row_fill
+        c.border = cell_border(); c.number_format = '#,##0'
+        sum_net += net
+
+    # ── 합계 행 ─────────────────────────────────────────────
+    footer_row = 4 + len(entries)
+    ws.row_dimensions[footer_row].height = 20
+    col_idx = 1
+
+    def fc(val, fmt=None, bold=True, thick_l=False, color='1A202C'):
+        nonlocal col_idx
+        c = ws.cell(row=footer_row, column=col_idx, value=val)
+        c.font  = Font(bold=bold, size=10, color=color)
+        c.fill  = gray_fill
+        c.alignment = right
+        c.border = cell_border(thick_left=thick_l)
+        if fmt:
+            c.number_format = fmt
+        col_idx += 1
+        return c
+
+    # 합계 레이블 (이름코드~구분 병합)
+    ws.merge_cells(start_row=footer_row, start_column=1, end_row=footer_row, end_column=3)
+    lc = ws.cell(row=footer_row, column=1, value='합  계')
+    lc.font = Font(bold=True, size=10); lc.alignment = center; lc.fill = gray_fill
+    lc.border = cell_border()
+    col_idx = 4
+
+    # 소정일수/근무일수 — 공백
+    fc(None); fc(None)
+    # 기본급/연장
+    fc(sum_base, fmt='#,##0')
+    fc(sum_ot,   fmt='#,##0')
+    # 수당 합계 행
+    for aid in active_allowance_ids:
+        fc(sum_allow_by_id[aid] or None, fmt='#,##0')
+    fc(sum_allow_total or None, fmt='#,##0', thick_l=True)
+    fc(sum_gross, fmt='#,##0')
+    # 공제
+    first_ded = True
+    for dn in ded_names:
+        fc(sum_ded_by_name[dn] or None, fmt='#,##0', thick_l=first_ded)
+        first_ded = False
+    fc(sum_ded_total or None, fmt='#,##0', thick_l=True)
+    fc(sum_net, fmt='#,##0', color='4C1D95')
+
+    # ── 열 너비 자동 조정 ─────────────────────────────────────
+    col_widths = [16, 12, 8, 8, 8, 14, 12]  # 고정 컬럼
+    for _ in active_allowance_ids:
+        col_widths.append(13)
+    col_widths += [11, 14]   # 수당합계, 총지급
+    for _ in ded_names:
+        col_widths.append(13)
+    col_widths += [11, 14]   # 공제합계, 실지급
+
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+    # 틀고정: 헤더 아래, 이름코드 우측
+    ws.freeze_panes = 'C4'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f'{period["year"]}년{period["month"]:02d}월_급여대장.xlsx'
+    return send_file(buf, as_attachment=True,
+                     download_name=filename,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @app.route('/payroll/<int:period_id>/delete', methods=['POST'])
 def payroll_period_delete(period_id):
     period = db.get_payroll_period(period_id)

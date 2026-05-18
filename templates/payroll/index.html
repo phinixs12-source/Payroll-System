@@ -50,6 +50,10 @@
             <div class="btn-action justify-content-center">
               <a href="{{ url_for('payroll_detail', period_id=p.id) }}"
                  class="btn btn-sm btn-outline-primary">열기</a>
+              {% if p.status == 'completed' %}
+              <a href="{{ url_for('payroll_export', period_id=p.id) }}"
+                 class="btn btn-sm btn-outline-success">📥 엑셀</a>
+              {% endif %}
               <form method="POST" action="{{ url_for('payroll_period_delete', period_id=p.id) }}"
                     onsubmit="return confirm('{{ p.year }}년 {{ p.month }}월 급여대장을 삭제하시겠습니까?')">
                 <button type="submit" class="btn btn-sm btn-outline-danger">삭제</button>
