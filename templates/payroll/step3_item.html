@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Step 3-{{ cur_idx + 1 }}: {{ allowance.name }} | {{ period.year }}년 {{ period.month }}월{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">Step 3: 수당 처리</h1>
+    <p class="page-subtitle">{{ period.year }}년 {{ period.month }}월 · 수당별로 확인 후 저장하세요.</p>
+  </div>
+  <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+     class="btn btn-outline-secondary btn-sm">← 대장으로</a>
+</div>
+
+<!-- 수당 진행 표시 -->
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center gap-0">
+      {% for a in allowances %}
+      {% set idx = loop.index0 %}
+      {% set is_done   = idx < cur_idx %}
+      {% set is_active = idx == cur_idx %}
+      <div class="d-flex align-items-center" style="flex:1">
+        <div class="d-flex flex-column align-items-center" style="min-width:72px">
+          <a href="{{ url_for('payroll_step3_item', period_id=period.id, allowance_id=a.id) }}"
+             style="text-decoration:none">
+            <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold"
+                 style="width:32px;height:32px;font-size:12px;margin:0 auto;
+                        background:{{ '#1a4f8a' if is_active else ('#28a745' if is_done else '#e2e8f0') }};
+                        color:{{ '#fff' if (is_active or is_done) else '#718096' }}">
+              {{ '✓' if is_done else (loop.index) }}
+            </div>
+          </a>
+          <div style="font-size:10px;margin-top:4px;text-align:center;max-width:72px;
+                      color:{{ '#1a4f8a' if is_active else ('#28a745' if is_done else '#aaa') }};
+                      font-weight:{{ '700' if is_active else '400' }}">
+            {{ a.name }}
+          </div>
+        </div>
+        {% if not loop.last %}
+        <div style="flex:1;height:2px;background:{{ '#28a745' if is_done else '#e2e8f0' }};
+                    margin:0 4px;margin-bottom:20px"></div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- 현재 수당 정보 배너 -->
+<div class="mb-3 p-3 rounded d-flex align-items-center justify-content-between"
+     style="background:#eff6ff;border:1px solid #bfdbfe">
+  <div>
+    <span style="font-size:18px;font-weight:700;color:#1e40af">{{ allowance.name }}</span>
+    <span class="ms-3" style="font-size:12px;color:#3b82f6">
+      {% if allowance.payment_condition == 'min_days' %}
+        ⚡ {{ allowance.condition_value }}일 이상 근무 시 지급
+      {% else %}
+        📌 고정 지급
+      {% endif %}
+    </span>
+    {% if allowance.apply_target != 'all' %}
+    <span class="ms-2 badge" style="background:#dbeafe;color:#1e40af;font-size:11px">
+      {{ allowance.apply_target }}만
+    </span>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    {% if has_prev %}
+    <a href="?load_prev=1" class="btn btn-outline-secondary btn-sm"
+       onclick="return confirm('전월 [{{ allowance.name }}] 금액으로 덮어씌우시겠습니까?')">
+      📂 전월 불러오기
+    </a>
+    {% endif %}
+    <span style="font-size:12px;color:#64748b;align-self:center">
+      {{ cur_idx + 1 }} / {{ allowances | length }}
+    </span>
+  </div>
+</div>
+
+<!-- 15일 조건 경고 -->
+{% set flagged = [] %}
+{% for entry in entries %}
+  {% if amounts[entry.id].flag %}{% set _ = flagged.append(entry) %}{% endif %}
+{% endfor %}
+{% if flagged %}
+<div class="alert alert-warning py-2 mb-3" style="font-size:12px">
+  ⚠️ 아래 <strong>{{ flagged|length }}명</strong>은 근무일수 미달({{ allowance.condition_value }}일 기준)로
+  지급 제외 처리됩니다. 필요 시 수동으로 변경하세요.
+  <span class="ms-2 text-muted">
+    ({{ flagged | map(attribute='name_code') | join(', ') }})
+  </span>
+</div>
+{% endif %}
+
+<form method="POST">
+  <div class="card mb-3">
+    <div class="card-body p-0">
+      <div class="table-responsive" style="max-height:520px;overflow:auto">
+        <table class="table table-sm mb-0" style="font-size:13px;white-space:nowrap">
+          <thead style="position:sticky;top:0;z-index:10;background:#1a4f8a;color:#fff">
+            <tr>
+              <th style="min-width:120px">이름코드</th>
+              <th>소속</th>
+              <th class="text-center" style="min-width:60px">구분</th>
+              <th class="text-center" style="min-width:80px">근무일수</th>
+              <th class="text-center" style="min-width:60px">지급</th>
+              <th style="text-align:right;min-width:120px">{{ allowance.name }} 금액</th>
+              <th style="text-align:right;min-width:110px;background:#0f3460">총지급(현재)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+            {% set val = amounts[entry.id] %}
+            <tr {% if entry.is_new_hire %}style="background:#f0fff4"
+                {% elif entry.is_resigned %}style="background:#fff5f5"{% endif %}>
+              <td>
+                <code style="font-size:11px;color:#1a4f8a">{{ entry.name_code }}</code>
+                {% if entry.is_new_hire %}
+                  <span class="badge bg-success ms-1" style="font-size:9px">입사</span>
+                {% elif entry.is_resigned %}
+                  <span class="badge bg-danger ms-1" style="font-size:9px">퇴사</span>
+                {% endif %}
+              </td>
+              <td>{{ entry.department or '—' }}</td>
+              <td class="text-center">
+                {% if entry.is_new_hire %}입사
+                {% elif entry.is_resigned %}퇴사
+                {% else %}재직{% endif %}
+              </td>
+              <td class="text-center">
+                {{ entry.work_days }}/{{ entry.scheduled_days }}
+                {% if entry.is_new_hire or entry.is_resigned %}
+                <span class="text-muted" style="font-size:10px">일</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <input type="checkbox"
+                       name="paid_{{ entry.id }}"
+                       class="form-check-input pay-toggle"
+                       data-entryid="{{ entry.id }}"
+                       {% if val.is_paid %}checked{% endif %}
+                       onchange="toggleAmt(this)">
+                {% if val.flag %}
+                  <span title="{{ allowance.condition_value }}일 미달" style="font-size:11px">⚠️</span>
+                {% endif %}
+              </td>
+              <td style="padding:3px 6px;text-align:right">
+                <input type="text"
+                       name="amt_{{ entry.id }}"
+                       id="amt_{{ entry.id }}"
+                       class="form-control form-control-sm text-end number-input"
+                       value="{{ val.amount | fmt_number if val.amount else '' }}"
+                       {% if not val.is_paid %}disabled style="width:110px;background:#f9fafb;color:#ccc"
+                       {% else %}style="width:110px"{% endif %}>
+              </td>
+              <td style="text-align:right;font-weight:600;color:#0f3460">
+                {{ entry.gross_pay | fmt_number }}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-center py-4 text-muted">대상 직원이 없습니다.</td></tr>
+            {% endfor %}
+          </tbody>
+          {% if entries %}
+          <tfoot style="background:#f3f4f6;font-weight:700;position:sticky;bottom:0">
+            <tr>
+              <td colspan="5" style="text-align:right">합계</td>
+              <td style="text-align:right" id="footer_allow_total">
+                {% set t = namespace(v=0) %}
+                {% for entry in entries %}
+                  {% if amounts[entry.id].is_paid %}
+                    {% set t.v = t.v + amounts[entry.id].amount %}
+                  {% endif %}
+                {% endfor %}
+                {{ t.v | fmt_number }}
+              </td>
+              <td style="text-align:right">
+                {{ entries | sum(attribute='gross_pay') | fmt_number }}
+              </td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 네비게이션 -->
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      {% if prev_allow %}
+      <a href="{{ url_for('payroll_step3_item', period_id=period.id, allowance_id=prev_allow.id) }}"
+         class="btn btn-outline-secondary">← {{ prev_allow.name }}</a>
+      {% else %}
+      <a href="{{ url_for('payroll_step2', period_id=period.id) }}"
+         class="btn btn-outline-secondary">← Step 2로</a>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+         class="btn btn-outline-secondary">취소</a>
+      {% if is_last %}
+      <button type="submit" class="btn btn-success px-4">
+        ✅ 저장 후 수당 완료
+      </button>
+      {% else %}
+      <button type="submit" class="btn btn-primary px-4">
+        저장 후 다음 → <span style="font-size:11px;opacity:.8">{{ next_allow.name }}</span>
+      </button>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 숫자 콤마 포맷
+document.querySelectorAll('.number-input').forEach(inp => {
+  inp.addEventListener('input', function () {
+    let v = this.value.replace(/[^0-9]/g, '');
+    this.value = v ? parseInt(v).toLocaleString() : '';
+    updateFooter();
+  });
+});
+
+function toggleAmt(cb) {
+  const id   = cb.dataset.entryid;
+  const inp  = document.getElementById('amt_' + id);
+  if (!inp) return;
+  inp.disabled = !cb.checked;
+  inp.style.background = cb.checked ? '' : '#f9fafb';
+  inp.style.color      = cb.checked ? '' : '#ccc';
+  updateFooter();
+}
+
+function updateFooter() {
+  let total = 0;
+  document.querySelectorAll('.pay-toggle').forEach(cb => {
+    if (cb.checked) {
+      const inp = document.getElementById('amt_' + cb.dataset.entryid);
+      if (inp) total += parseInt((inp.value || '0').replace(/,/g, '')) || 0;
+    }
+  });
+  const el = document.getElementById('footer_allow_total');
+  if (el) el.textContent = total.toLocaleString();
+}
+</script>
+{% endblock %}

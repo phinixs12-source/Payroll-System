@@ -74,7 +74,7 @@
            class="btn btn-primary btn-sm">Step 3: 수당 처리 →</a>
       {% elif period.status == 'step3' %}
         <a href="{{ url_for('payroll_step3', period_id=period.id) }}"
-           class="btn btn-outline-secondary btn-sm">← Step 3 재편집</a>
+           class="btn btn-outline-secondary btn-sm">← 수당 재편집</a>
         <a href="{{ url_for('payroll_step4', period_id=period.id) }}"
            class="btn btn-primary btn-sm">Step 4: 공제 처리 →</a>
       {% elif period.status == 'completed' %}

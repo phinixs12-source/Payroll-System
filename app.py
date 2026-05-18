@@ -908,16 +908,46 @@ def payroll_step2(period_id):
                            period=period, targets=targets, total_days=total_days)
 
 
-@app.route('/payroll/<int:period_id>/step3', methods=['GET', 'POST'])
+@app.route('/payroll/<int:period_id>/step3')
 def payroll_step3(period_id):
-    period     = db.get_payroll_period(period_id)
+    """수당 처리 진입 → 첫 번째 수당으로 리디렉트"""
+    period = db.get_payroll_period(period_id)
     if not period:
         return redirect(url_for('payroll'))
+    allowances = [a for a in db.get_all_allowances() if a['is_active']]
+    if not allowances:
+        # 활성 수당 없으면 step3 완료 처리 후 step4로
+        db.update_payroll_period_status(period_id, 'step3')
+        flash('활성 수당 항목이 없어 수당 처리를 건너뜁니다.', 'info')
+        return redirect(url_for('payroll_step4', period_id=period_id))
+    return redirect(url_for('payroll_step3_item',
+                            period_id=period_id,
+                            allowance_id=allowances[0]['id']))
+
+
+@app.route('/payroll/<int:period_id>/step3/<int:allowance_id>', methods=['GET', 'POST'])
+def payroll_step3_item(period_id, allowance_id):
+    """수당 항목 1개씩 처리"""
+    period = db.get_payroll_period(period_id)
+    if not period:
+        return redirect(url_for('payroll'))
+
     entries    = db.get_payroll_entries(period_id)
     allowances = [a for a in db.get_all_allowances() if a['is_active']]
+    allowance  = db.get_allowance(allowance_id)
     total_days = _cal.monthrange(period['year'], period['month'])[1]
 
-    # 전월 수당 데이터
+    if not allowance or not allowance['is_active']:
+        return redirect(url_for('payroll_step3', period_id=period_id))
+
+    # 순서 계산
+    allow_ids   = [a['id'] for a in allowances]
+    cur_idx     = allow_ids.index(allowance_id) if allowance_id in allow_ids else 0
+    prev_allow  = allowances[cur_idx - 1] if cur_idx > 0 else None
+    next_allow  = allowances[cur_idx + 1] if cur_idx < len(allowances) - 1 else None
+    is_last     = (next_allow is None)
+
+    # 전월 데이터
     prev_y = period['year'] if period['month'] > 1 else period['year'] - 1
     prev_m = period['month'] - 1 if period['month'] > 1 else 12
     prev   = db.get_payroll_period_by_ym(prev_y, prev_m)
@@ -925,58 +955,58 @@ def payroll_step3(period_id):
 
     if request.method == 'POST':
         for entry in entries:
-            for a in allowances:
-                amt_str = request.form.get(f'amt_{entry["id"]}_{a["id"]}', '0').replace(',', '')
-                amount  = int(amt_str or 0)
-                is_paid = 1 if request.form.get(f'paid_{entry["id"]}_{a["id"]}') else 0
-                db.upsert_payroll_allowance(entry['id'], a['id'], amount, is_paid)
+            amt_str = request.form.get(f'amt_{entry["id"]}', '0').replace(',', '')
+            amount  = int(amt_str or 0)
+            is_paid = 1 if request.form.get(f'paid_{entry["id"]}') else 0
+            db.upsert_payroll_allowance(entry['id'], allowance_id, amount, is_paid)
         for entry in entries:
             db.recalculate_entry_totals(entry['id'])
-        db.update_payroll_period_status(period_id, 'step3')
-        flash('수당 처리가 완료되었습니다.', 'success')
-        return redirect(url_for('payroll_detail', period_id=period_id))
 
-    # GET — 기본값 준비 (등록 수당 → 없으면 employee_allowances 기본값)
+        if is_last:
+            db.update_payroll_period_status(period_id, 'step3')
+            flash('수당 처리가 모두 완료되었습니다. 공제 처리로 이동하세요.', 'success')
+            return redirect(url_for('payroll_detail', period_id=period_id))
+        else:
+            flash(f'[{allowance["name"]}] 저장 완료.', 'success')
+            return redirect(url_for('payroll_step3_item',
+                                    period_id=period_id,
+                                    allowance_id=next_allow['id']))
+
+    # GET — 이 수당의 직원별 값 준비
     current_paid_map = db.get_payroll_allowances_by_period(period_id)
     load_prev = request.args.get('load_prev') == '1'
 
-    amounts = {}  # amounts[entry_id][allowance_id] = {amount, is_paid, flag}
+    amounts = {}  # {entry_id: {amount, is_paid, flag}}
     for entry in entries:
         emp_ea = {ea['allowance_item_id']: ea['amount']
                   for ea in db.get_employee_allowances(entry['employee_id'])}
-        amounts[entry['id']] = {}
-        for a in allowances:
-            # 우선순위: 현재저장 > 전월불러오기 > 직원기본값
-            if load_prev and prev_paid_map:
-                # 전월 데이터에서 같은 직원 entry 찾기
-                prev_entry_data = _find_prev_entry_allowance(
-                    prev_paid_map, prev['id'] if prev else None,
-                    entry['employee_id'], a['id']
-                ) if prev else None
-                if prev_entry_data:
-                    val = prev_entry_data
-                else:
-                    val = {'amount': emp_ea.get(a['id'], 0), 'is_paid': 1}
-            elif entry['id'] in current_paid_map and a['id'] in current_paid_map[entry['id']]:
-                val = current_paid_map[entry['id']][a['id']]
-            else:
-                val = {'amount': emp_ea.get(a['id'], 0), 'is_paid': 1}
 
-            # 15일 조건 자동 플래그
-            flag = False
-            if (entry['is_new_hire'] or entry['is_resigned']) and \
-               a['payment_condition'] == 'min_days' and \
-               entry['work_days'] < a['condition_value']:
-                val = dict(val)
-                val['is_paid'] = 0
-                flag = True
-            val['flag'] = flag
-            amounts[entry['id']][a['id']] = val
+        if load_prev and prev and prev_paid_map:
+            prev_data = _find_prev_entry_allowance(
+                prev_paid_map, prev['id'], entry['employee_id'], allowance_id)
+            val = dict(prev_data) if prev_data else {'amount': emp_ea.get(allowance_id, 0), 'is_paid': 1}
+        elif entry['id'] in current_paid_map and allowance_id in current_paid_map[entry['id']]:
+            val = dict(current_paid_map[entry['id']][allowance_id])
+        else:
+            val = {'amount': emp_ea.get(allowance_id, 0), 'is_paid': 1}
 
-    return render_template('payroll/step3.html',
+        # 15일 조건 자동 플래그
+        flag = False
+        if (entry['is_new_hire'] or entry['is_resigned']) and \
+           allowance['payment_condition'] == 'min_days' and \
+           entry['work_days'] < allowance['condition_value']:
+            val['is_paid'] = 0
+            flag = True
+        val['flag'] = flag
+        amounts[entry['id']] = val
+
+    return render_template('payroll/step3_item.html',
                            period=period, entries=entries,
-                           allowances=allowances, amounts=amounts,
+                           allowance=allowance, allowances=allowances,
+                           cur_idx=cur_idx, amounts=amounts,
                            total_days=total_days,
+                           prev_allow=prev_allow, next_allow=next_allow,
+                           is_last=is_last,
                            has_prev=bool(prev),
                            load_prev=load_prev)
 
