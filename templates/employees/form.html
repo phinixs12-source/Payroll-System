@@ -152,8 +152,6 @@
                 {{ a.name }}
                 {% if a.payment_condition == 'min_days' %}
                   <span class="text-muted" style="font-size:11px">({{ a.condition_value }}일이상)</span>
-                {% elif a.payment_condition == 'prorated' %}
-                  <span class="text-muted" style="font-size:11px">(일할)</span>
                 {% endif %}
               </label>
               <input type="text" name="allowance_{{ a.id }}"
@@ -161,6 +159,25 @@
                      data-ordinary="{{ '1' if a.is_ordinary_wage else '0' }}"
                      value="{{ (emp_allowances[a.id] | fmt_number) if (emp_allowances is defined and a.id in emp_allowances) else '0' }}"
                      oninput="calcOrdinaryWage()">
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if deductions %}
+          <div class="section-divider mt-4">공제 금액 (기본값)</div>
+          <div class="row g-3">
+            {% for d in deductions %}
+            <div class="col-md-4">
+              <label class="form-label">
+                {{ d.name }}
+                {% if d.is_insurance %}
+                  <span class="badge ms-1" style="font-size:9px;background:#e0f2fe;color:#0369a1">보험료</span>
+                {% endif %}
+              </label>
+              <input type="text" name="deduction_{{ d.id }}"
+                     class="form-control number-input"
+                     value="{{ (emp_deductions[d.id] | fmt_number) if (emp_deductions is defined and d.id in emp_deductions) else '0' }}">
             </div>
             {% endfor %}
           </div>

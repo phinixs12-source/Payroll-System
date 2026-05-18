@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}공제 항목 관리 | 인건비 관리 시스템{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">💸 공제 항목 관리</h1>
+    <p class="page-subtitle">급여에서 차감되는 공제 항목을 설정합니다. 직원별 금액은 인원 수정에서 설정합니다.</p>
+  </div>
+  <a href="{{ url_for('deduction_new') }}" class="btn btn-primary btn-sm">+ 항목 추가</a>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>공제 항목명</th>
+          <th class="text-center">구분</th>
+          <th class="text-center">지급 조건</th>
+          <th class="text-center">적용 대상</th>
+          <th class="text-center">상태</th>
+          <th class="text-center">관리</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr {% if not item.is_active %}style="opacity:.5"{% endif %}>
+          <td class="fw-bold">
+            {{ item.name }}
+            {% if item.is_insurance %}
+              <span class="badge ms-1" style="font-size:10px;background:#e0f2fe;color:#0369a1">
+                4대보험
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if item.is_insurance %}
+              <span class="text-muted" style="font-size:12px">보험료 (별도 처리)</span>
+            {% else %}
+              <span style="font-size:12px">기타공제</span>
+            {% endif %}
+          </td>
+          <td class="text-center" style="font-size:13px">
+            {% if item.payment_condition == 'min_days' %}
+              {{ item.condition_value }}일 이상
+            {% else %}
+              고정
+            {% endif %}
+          </td>
+          <td class="text-center" style="font-size:13px">
+            {{ '전체' if item.apply_target == 'all' else item.apply_target }}
+          </td>
+          <td class="text-center">
+            {% if item.is_active %}
+              <span class="status-badge status-active">활성</span>
+            {% else %}
+              <span class="status-badge status-inactive">비활성</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            <div class="btn-action justify-content-center">
+              <a href="{{ url_for('deduction_edit', item_id=item.id) }}"
+                 class="btn btn-sm btn-outline-primary">수정</a>
+              <form method="POST" action="{{ url_for('deduction_toggle', item_id=item.id) }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                  {{ '비활성화' if item.is_active else '활성화' }}
+                </button>
+              </form>
+              <form method="POST" action="{{ url_for('deduction_delete', item_id=item.id) }}"
+                    onsubmit="return confirm('{{ item.name }} 항목을 삭제하시겠습니까?')">
+                <button type="submit" class="btn btn-sm btn-outline-danger">삭제</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-center py-4 text-muted">
+            등록된 공제 항목이 없습니다.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="mt-3 p-3 rounded" style="background:#fff8e1;border:1px solid #fdd835;font-size:12px;color:#795548">
+  ⚠️ <strong>4대보험(국민연금·건강보험·장기요양·고용보험)</strong>은 고지서 매칭 기능 구성 예정입니다.
+  현재는 급여작업 Step 4에서 직접 금액을 입력합니다.
+</div>
+
+<div class="d-flex gap-2 mt-3">
+  <a href="{{ url_for('employee_list') }}" class="btn btn-outline-secondary btn-sm">← 인원 관리</a>
+  <a href="{{ url_for('allowance_list') }}" class="btn btn-outline-secondary btn-sm">수당 항목 관리 →</a>
+</div>
+{% endblock %}

@@ -251,21 +251,25 @@ def employee_list():
 
 @app.route('/employees/new', methods=['GET', 'POST'])
 def employee_new():
-    allowances = db.get_all_allowances()
+    allowances  = db.get_all_allowances()
+    deductions  = db.get_all_deductions()
     if request.method == 'POST':
         data = _parse_employee_form(request.form)
         if not data['name_code']:
             flash('이름 코드를 입력해주세요.', 'danger')
             return render_template('employees/form.html', employee=data,
-                                   allowances=allowances, mode='new')
+                                   allowances=allowances, deductions=deductions, mode='new')
         emp_id = db.create_employee(data)
         for a in allowances:
             amt_str = request.form.get(f'allowance_{a["id"]}', '0').replace(',', '')
             db.upsert_employee_allowance(emp_id, a['id'], int(amt_str or 0))
+        for d in deductions:
+            amt_str = request.form.get(f'deduction_{d["id"]}', '0').replace(',', '')
+            db.upsert_employee_deduction(emp_id, d['id'], int(amt_str or 0))
         flash(f'인원이 등록되었습니다. [{data["name_code"]}]', 'success')
         return redirect(url_for('employee_list'))
     return render_template('employees/form.html', employee=None,
-                           allowances=allowances, mode='new')
+                           allowances=allowances, deductions=deductions, mode='new')
 
 
 @app.route('/employees/<int:emp_id>/edit', methods=['GET', 'POST'])
@@ -274,25 +278,30 @@ def employee_edit(emp_id):
     if not employee:
         flash('존재하지 않는 인원입니다.', 'danger')
         return redirect(url_for('employee_list'))
-    allowances = db.get_all_allowances()
+    allowances    = db.get_all_allowances()
+    deductions    = db.get_all_deductions()
     emp_allowances = {ea['allowance_item_id']: ea['amount']
                       for ea in db.get_employee_allowances(emp_id)}
+    emp_deductions = {ed['deduction_item_id']: ed['amount']
+                      for ed in db.get_employee_deductions(emp_id)}
     if request.method == 'POST':
         data = _parse_employee_form(request.form)
         db.update_employee(emp_id, data)
         for a in allowances:
             amt_str = request.form.get(f'allowance_{a["id"]}', '0').replace(',', '')
             db.upsert_employee_allowance(emp_id, a['id'], int(amt_str or 0))
-        # 통상임금 자동계산 후 저장
+        for d in deductions:
+            amt_str = request.form.get(f'deduction_{d["id"]}', '0').replace(',', '')
+            db.upsert_employee_deduction(emp_id, d['id'], int(amt_str or 0))
         _recalc_ordinary_wage(emp_id, allowances, emp_allowances)
         flash('인원 정보가 수정되었습니다.', 'success')
         return redirect(url_for('employee_list'))
-    # 통상임금·연장근로수당 계산 (GET용)
     ordinary_wage_calc = _calc_ordinary_wage(employee, allowances, emp_allowances)
     monthly_pay = round(employee['annual_salary'] / 12) if employee['annual_salary'] else 0
     overtime_pay_calc = monthly_pay - (employee['base_salary'] or 0)
     return render_template('employees/form.html', employee=employee,
                            allowances=allowances, emp_allowances=emp_allowances,
+                           deductions=deductions, emp_deductions=emp_deductions,
                            ordinary_wage_calc=ordinary_wage_calc,
                            overtime_pay_calc=max(0, overtime_pay_calc),
                            mode='edit')
@@ -662,6 +671,68 @@ def _parse_allowance_form(form):
 
 
 # ════════════════════════════════════════════════════════
+#  공제 항목 관리
+# ════════════════════════════════════════════════════════
+@app.route('/deductions')
+def deduction_list():
+    items = db.get_all_deductions()
+    return render_template('deductions/list.html', items=items)
+
+
+@app.route('/deductions/new', methods=['GET', 'POST'])
+def deduction_new():
+    if request.method == 'POST':
+        data = _parse_deduction_form(request.form)
+        if not data['name']:
+            flash('공제 항목명을 입력해주세요.', 'danger')
+            return render_template('deductions/form.html', item=data, mode='new')
+        db.create_deduction(data)
+        flash(f'공제 항목이 추가되었습니다. [{data["name"]}]', 'success')
+        return redirect(url_for('deduction_list'))
+    return render_template('deductions/form.html', item=None, mode='new')
+
+
+@app.route('/deductions/<int:item_id>/edit', methods=['GET', 'POST'])
+def deduction_edit(item_id):
+    item = db.get_deduction(item_id)
+    if not item:
+        flash('존재하지 않는 항목입니다.', 'danger')
+        return redirect(url_for('deduction_list'))
+    if request.method == 'POST':
+        data = _parse_deduction_form(request.form)
+        db.update_deduction(item_id, data)
+        flash(f'공제 항목이 수정되었습니다. [{data["name"]}]', 'success')
+        return redirect(url_for('deduction_list'))
+    return render_template('deductions/form.html', item=item, mode='edit')
+
+
+@app.route('/deductions/<int:item_id>/delete', methods=['POST'])
+def deduction_delete(item_id):
+    item = db.get_deduction(item_id)
+    if item:
+        db.delete_deduction(item_id)
+        flash(f'공제 항목이 삭제되었습니다. [{item["name"]}]', 'success')
+    return redirect(url_for('deduction_list'))
+
+
+@app.route('/deductions/<int:item_id>/toggle', methods=['POST'])
+def deduction_toggle(item_id):
+    db.toggle_deduction(item_id)
+    return redirect(url_for('deduction_list'))
+
+
+def _parse_deduction_form(form):
+    return {
+        'name':              form.get('name', '').strip(),
+        'is_insurance':      1 if form.get('is_insurance') else 0,
+        'payment_condition': form.get('payment_condition', 'fixed'),
+        'condition_value':   int(form.get('condition_value', 0) or 0),
+        'apply_target':      form.get('apply_target', 'all'),
+        'is_active':         1 if form.get('is_active') else 0,
+    }
+
+
+# ════════════════════════════════════════════════════════
 #  급여작업
 # ════════════════════════════════════════════════════════
 
@@ -928,37 +999,47 @@ def _find_prev_entry_allowance(prev_paid_map, prev_period_id, employee_id, allow
 
 @app.route('/payroll/<int:period_id>/step4', methods=['GET', 'POST'])
 def payroll_step4(period_id):
-    period  = db.get_payroll_period(period_id)
+    period     = db.get_payroll_period(period_id)
     if not period:
         return redirect(url_for('payroll'))
-    entries = db.get_payroll_entries(period_id)
-
-    ded_rows  = db.get_payroll_deductions_by_period(period_id)
-    ded_names = list(dict.fromkeys([d['deduction_name'] for d in ded_rows]))
-    if not ded_names:
-        ded_names = ['건강보험', '장기요양', '국민연금', '고용보험', '소득세', '지방소득세']
-    ded_map = {}
-    for d in ded_rows:
-        ded_map.setdefault(d['entry_id'], {})[d['deduction_name']] = d['amount']
+    entries    = db.get_payroll_entries(period_id)
+    ded_items  = [d for d in db.get_all_deductions() if d['is_active']]
 
     if request.method == 'POST':
-        # 공제 항목명 목록
-        names = [n.strip() for n in request.form.get('ded_names_list', '').split(',') if n.strip()]
         for entry in entries:
             db.delete_payroll_deductions_by_entry(entry['id'])
-            for dname in names:
-                key = f'ded_{entry["id"]}_{dname}'
+            for d in ded_items:
+                key = f'ded_{entry["id"]}_{d["id"]}'
                 amt = int(request.form.get(key, '0').replace(',', '') or 0)
                 if amt > 0:
-                    db.upsert_payroll_deduction(entry['id'], dname, amt)
+                    db.upsert_payroll_deduction(entry['id'], d['name'], amt)
             db.recalculate_entry_totals(entry['id'])
         db.update_payroll_period_status(period_id, 'completed')
         flash('공제 처리 완료. 급여대장이 확정되었습니다.', 'success')
         return redirect(url_for('payroll_detail', period_id=period_id))
 
+    # GET — 직원별 기본 공제금액 pre-fill
+    ded_map = {}   # {entry_id: {item_id: amount}}
+    # 이미 저장된 값이 있으면 우선
+    saved = db.get_payroll_deductions_by_period(period_id)
+    saved_by_entry = {}
+    for s in saved:
+        saved_by_entry.setdefault(s['entry_id'], {})[s['deduction_name']] = s['amount']
+
+    for entry in entries:
+        emp_deds = {ed['deduction_item_id']: ed['amount']
+                    for ed in db.get_employee_deductions(entry['employee_id'])}
+        ded_map[entry['id']] = {}
+        for d in ded_items:
+            saved_val = saved_by_entry.get(entry['id'], {}).get(d['name'])
+            if saved_val is not None:
+                ded_map[entry['id']][d['id']] = saved_val
+            else:
+                ded_map[entry['id']][d['id']] = emp_deds.get(d['id'], 0)
+
     return render_template('payroll/step4.html',
                            period=period, entries=entries,
-                           ded_names=ded_names, ded_map=ded_map)
+                           ded_items=ded_items, ded_map=ded_map)
 
 
 @app.route('/payroll/<int:period_id>/delete', methods=['POST'])

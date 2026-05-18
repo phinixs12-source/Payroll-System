@@ -95,6 +95,52 @@ def init_db():
         )
     """)
 
+    # 공제 항목 테이블 (수당 항목과 동일 구조)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS deduction_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            is_insurance INTEGER DEFAULT 0,
+            payment_condition TEXT DEFAULT 'fixed',
+            condition_value INTEGER DEFAULT 0,
+            apply_target TEXT DEFAULT 'all',
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+
+    # 직원별 공제 금액 테이블 (수당 금액과 동일 구조)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS employee_deductions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            deduction_item_id INTEGER NOT NULL,
+            amount INTEGER DEFAULT 0,
+            FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+            FOREIGN KEY (deduction_item_id) REFERENCES deduction_items(id) ON DELETE CASCADE,
+            UNIQUE(employee_id, deduction_item_id)
+        )
+    """)
+
+    # 기본 공제 항목 삽입
+    cur.execute("SELECT COUNT(*) FROM deduction_items")
+    if cur.fetchone()[0] == 0:
+        default_deductions = [
+            ('국민연금',         1, 'fixed', 0, 'all', 1, 1),
+            ('건강보험',         1, 'fixed', 0, 'all', 1, 2),
+            ('장기요양보험',     1, 'fixed', 0, 'all', 1, 3),
+            ('고용보험',         1, 'fixed', 0, 'all', 1, 4),
+            ('주택자금대출상환', 0, 'fixed', 0, 'all', 1, 5),
+            ('기타공제',         0, 'fixed', 0, 'all', 1, 6),
+        ]
+        cur.executemany("""
+            INSERT INTO deduction_items
+            (name, is_insurance, payment_condition, condition_value,
+             apply_target, is_active, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, default_deductions)
+
     # 급여 귀속기간 테이블
     cur.execute("""
         CREATE TABLE IF NOT EXISTS payroll_periods (
@@ -431,6 +477,92 @@ def get_all_settings():
     rows = conn.execute("SELECT * FROM settings").fetchall()
     conn.close()
     return {r['key']: r['value'] for r in rows}
+
+
+# ─── 공제 항목 ──────────────────────────────────────────────
+
+def get_all_deductions():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM deduction_items ORDER BY sort_order, id"
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_deduction(item_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM deduction_items WHERE id=?", (item_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def create_deduction(data):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO deduction_items
+        (name, is_insurance, payment_condition, condition_value, apply_target, is_active)
+        VALUES (:name, :is_insurance, :payment_condition, :condition_value, :apply_target, :is_active)
+    """, data)
+    conn.commit()
+    conn.close()
+
+
+def update_deduction(item_id, data):
+    conn = get_db()
+    conn.execute("""
+        UPDATE deduction_items SET
+            name=:name, is_insurance=:is_insurance,
+            payment_condition=:payment_condition, condition_value=:condition_value,
+            apply_target=:apply_target, is_active=:is_active
+        WHERE id=:id
+    """, {**data, 'id': item_id})
+    conn.commit()
+    conn.close()
+
+
+def delete_deduction(item_id):
+    conn = get_db()
+    conn.execute("DELETE FROM deduction_items WHERE id=?", (item_id,))
+    conn.commit()
+    conn.close()
+
+
+def toggle_deduction(item_id):
+    conn = get_db()
+    conn.execute("""
+        UPDATE deduction_items
+        SET is_active = CASE WHEN is_active=1 THEN 0 ELSE 1 END
+        WHERE id=?
+    """, (item_id,))
+    conn.commit()
+    conn.close()
+
+
+# ─── 직원별 공제 금액 ─────────────────────────────────────────
+
+def get_employee_deductions(emp_id):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT ed.*, di.name, di.is_insurance, di.payment_condition
+        FROM employee_deductions ed
+        JOIN deduction_items di ON ed.deduction_item_id = di.id
+        WHERE ed.employee_id = ?
+        ORDER BY di.sort_order
+    """, (emp_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+def upsert_employee_deduction(emp_id, item_id, amount):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO employee_deductions (employee_id, deduction_item_id, amount)
+        VALUES (?, ?, ?)
+        ON CONFLICT(employee_id, deduction_item_id) DO UPDATE SET amount=excluded.amount
+    """, (emp_id, item_id, amount))
+    conn.commit()
+    conn.close()
 
 
 # ─── 급여 귀속기간 ──────────────────────────────────────────

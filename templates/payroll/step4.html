@@ -5,97 +5,124 @@
 <div class="page-header d-flex justify-content-between align-items-start">
   <div>
     <h1 class="page-title">Step 4: 공제 처리</h1>
-    <p class="page-subtitle">{{ period.year }}년 {{ period.month }}월 공제 금액을 입력하고 급여대장을 확정합니다.</p>
+    <p class="page-subtitle">
+      {{ period.year }}년 {{ period.month }}월 공제 금액을 확인·입력하고 급여대장을 확정합니다.
+    </p>
   </div>
   <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
      class="btn btn-outline-secondary btn-sm">← 대장으로</a>
 </div>
 
-<form method="POST" id="step4Form">
-  <!-- 공제 항목 설정 -->
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <span>공제 항목 설정</span>
-      <button type="button" class="btn btn-outline-primary btn-sm" onclick="addDedItem()">
-        + 항목 추가
-      </button>
-    </div>
-    <div class="card-body">
-      <div class="d-flex flex-wrap gap-2" id="dedItems">
-        {% for dn in ded_names %}
-        <div class="d-flex align-items-center gap-1 ded-item">
-          <input type="text" class="form-control form-control-sm" value="{{ dn }}"
-                 style="width:120px" placeholder="항목명" required>
-          <button type="button" class="btn btn-sm btn-outline-danger"
-                  onclick="this.closest('.ded-item').remove()">✕</button>
-        </div>
-        {% endfor %}
-      </div>
-      <div class="form-text mt-2">항목을 추가하거나 삭제한 후 아래 표에 금액을 입력하세요.</div>
-      <button type="button" class="btn btn-outline-secondary btn-sm mt-2"
-              onclick="renderTable()">
-        🔄 표 업데이트
-      </button>
-    </div>
-  </div>
+{% if not ded_items %}
+<div class="alert alert-warning">
+  활성 공제 항목이 없습니다.
+  <a href="{{ url_for('deduction_list') }}">공제 항목 관리</a>에서 먼저 설정하세요.
+</div>
+{% endif %}
 
-  <!-- 공제 금액 입력 테이블 -->
+<form method="POST">
+  <!-- 안내 배너 -->
+  {% set insurance_items = ded_items | selectattr('is_insurance', 'equalto', 1) | list %}
+  {% if insurance_items %}
+  <div class="mb-3 p-3 rounded" style="background:#fff8e1;border:1px solid #fdd835;font-size:12px;color:#795548">
+    ⚠️ <strong>4대보험({{ insurance_items | map(attribute='name') | join(', ') }})</strong>은
+    고지서 연동 기능 구성 전까지 직접 입력합니다.
+    인원 수정 페이지에서 기본값을 설정하면 자동으로 불러옵니다.
+  </div>
+  {% endif %}
+
   <div class="card mb-3">
     <div class="card-body p-0">
-      <div class="table-responsive" style="max-height:500px;overflow:auto">
-        <table class="table table-sm mb-0" id="dedTable" style="font-size:12px;white-space:nowrap">
+      <div class="table-responsive" style="max-height:560px;overflow:auto">
+        <table class="table table-sm mb-0" style="font-size:12px;white-space:nowrap">
           <thead style="position:sticky;top:0;z-index:10;background:#7c3aed;color:#fff">
             <tr>
               <th style="min-width:110px">이름코드</th>
               <th>소속</th>
               <th style="text-align:right;min-width:100px">총지급</th>
-              {% for dn in ded_names %}
-              <th style="text-align:right;min-width:100px">{{ dn }}</th>
+              {% for d in ded_items %}
+              <th style="text-align:center;min-width:110px">
+                {{ d.name }}
+                {% if d.is_insurance %}
+                <span style="font-size:9px;opacity:.8;display:block">(보험료)</span>
+                {% endif %}
+              </th>
               {% endfor %}
-              <th style="text-align:right;min-width:100px">총공제</th>
-              <th style="text-align:right;min-width:110px;background:#5b21b6">실지급</th>
+              <th style="text-align:right;min-width:100px;background:#5b21b6">총공제</th>
+              <th style="text-align:right;min-width:110px;background:#4c1d95">실지급</th>
             </tr>
           </thead>
           <tbody>
-            {% for e in entries %}
-            <tr>
-              <td><code style="font-size:11px;color:#1a4f8a">{{ e.name_code }}</code></td>
-              <td>{{ e.department or '—' }}</td>
-              <td style="text-align:right;font-weight:600">{{ e.gross_pay | fmt_number }}</td>
-              {% for dn in ded_names %}
+            {% for entry in entries %}
+            <tr {% if entry.is_new_hire %}style="background:#f0fff4"
+                {% elif entry.is_resigned %}style="background:#fff5f5"{% endif %}>
+              <td>
+                <code style="font-size:11px;color:#1a4f8a">{{ entry.name_code }}</code>
+                {% if entry.is_new_hire %}
+                  <span class="badge bg-success" style="font-size:9px">입사</span>
+                {% elif entry.is_resigned %}
+                  <span class="badge bg-danger" style="font-size:9px">퇴사</span>
+                {% endif %}
+              </td>
+              <td>{{ entry.department or '—' }}</td>
+              <td style="text-align:right;font-weight:600">
+                {{ entry.gross_pay | fmt_number }}
+              </td>
+              {% for d in ded_items %}
               <td style="padding:3px 6px">
                 <input type="text"
-                       name="ded_{{ e.id }}_{{ dn }}"
+                       name="ded_{{ entry.id }}_{{ d.id }}"
                        class="form-control form-control-sm text-end number-input ded-input"
-                       value="{{ ded_map.get(e.id, {}).get(dn, 0) | fmt_number }}"
-                       data-gross="{{ e.gross_pay }}"
-                       data-entryid="{{ e.id }}"
+                       value="{{ ded_map.get(entry.id, {}).get(d.id, 0) | fmt_number }}"
+                       data-gross="{{ entry.gross_pay }}"
+                       data-entryid="{{ entry.id }}"
                        style="width:90px"
                        oninput="updateRowNet(this)">
               </td>
               {% endfor %}
-              <td style="text-align:right;font-weight:600" id="ded_total_{{ e.id }}">
-                {{ e.total_deduction | fmt_number }}
+              <td style="text-align:right;font-weight:600" id="ded_total_{{ entry.id }}">
+                {% set cur_ded = namespace(v=0) %}
+                {% for d in ded_items %}
+                  {% set cur_ded.v = cur_ded.v + ded_map.get(entry.id, {}).get(d.id, 0) %}
+                {% endfor %}
+                {{ cur_ded.v | fmt_number }}
               </td>
-              <td style="text-align:right;font-weight:700;color:#7c3aed" id="net_{{ e.id }}">
-                {{ e.net_pay | fmt_number }}
+              <td style="text-align:right;font-weight:700;color:#7c3aed" id="net_{{ entry.id }}">
+                {{ (entry.gross_pay - cur_ded.v) | fmt_number }}
               </td>
             </tr>
             {% endfor %}
           </tbody>
+          {% if entries %}
+          <tfoot style="background:#f3f4f6;font-weight:700;position:sticky;bottom:0">
+            <tr>
+              <td colspan="2" style="text-align:right">합계</td>
+              <td style="text-align:right">{{ entries | sum(attribute='gross_pay') | fmt_number }}</td>
+              {% for d in ded_items %}
+              <td style="text-align:right">
+                {% set col_t = namespace(v=0) %}
+                {% for entry in entries %}
+                  {% set col_t.v = col_t.v + ded_map.get(entry.id, {}).get(d.id, 0) %}
+                {% endfor %}
+                {{ col_t.v | fmt_number }}
+              </td>
+              {% endfor %}
+              <td style="text-align:right" id="footer_ded_total">—</td>
+              <td style="text-align:right;color:#7c3aed" id="footer_net_total">—</td>
+            </tr>
+          </tfoot>
+          {% endif %}
         </table>
       </div>
     </div>
   </div>
 
-  <!-- 공제 항목명 hidden 전송 -->
-  <input type="hidden" name="ded_names_list" id="dedNamesList"
-         value="{{ ded_names | join(',') }}">
-
   <div class="d-flex gap-2">
-    <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">
+    <button type="submit" class="btn btn-primary" onclick="return confirmFinalize()">
       ✅ 공제 확정 & 급여대장 완료
     </button>
+    <a href="{{ url_for('payroll_step3', period_id=period.id) }}"
+       class="btn btn-outline-secondary">← Step 3 수당으로</a>
     <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
        class="btn btn-outline-secondary">취소</a>
   </div>
@@ -104,7 +131,6 @@
 
 {% block scripts %}
 <script>
-// 숫자 콤마 포맷
 document.querySelectorAll('.number-input').forEach(input => {
   input.addEventListener('input', function() {
     let v = this.value.replace(/[^0-9]/g, '');
@@ -112,40 +138,39 @@ document.querySelectorAll('.number-input').forEach(input => {
   });
 });
 
-// 행별 실지급 실시간 업데이트
 function updateRowNet(changedInput) {
   const entryId = changedInput.dataset.entryid;
-  const gross = parseInt(changedInput.dataset.gross) || 0;
-  let totalDed = 0;
+  const gross   = parseInt(changedInput.dataset.gross) || 0;
+  let totalDed  = 0;
   document.querySelectorAll(`.ded-input[data-entryid="${entryId}"]`).forEach(inp => {
     totalDed += parseInt((inp.value || '0').replace(/,/g, '')) || 0;
   });
   const dedEl = document.getElementById('ded_total_' + entryId);
-  const netEl = document.getElementById('net_' + entryId);
+  const netEl = document.getElementById('net_'       + entryId);
   if (dedEl) dedEl.textContent = totalDed.toLocaleString();
   if (netEl) netEl.textContent = Math.max(0, gross - totalDed).toLocaleString();
+  updateFooter();
 }
 
-// 공제 항목 추가
-function addDedItem() {
-  const container = document.getElementById('dedItems');
-  const div = document.createElement('div');
-  div.className = 'd-flex align-items-center gap-1 ded-item';
-  div.innerHTML = `<input type="text" class="form-control form-control-sm"
-                          style="width:120px" placeholder="항목명" required>
-                   <button type="button" class="btn btn-sm btn-outline-danger"
-                           onclick="this.closest('.ded-item').remove()">✕</button>`;
-  container.appendChild(div);
-}
-
-// 제출 전 공제 항목명 수집
-function prepareSubmit() {
-  const names = [];
-  document.querySelectorAll('#dedItems .ded-item input').forEach(inp => {
-    const v = inp.value.trim();
-    if (v) names.push(v);
+function updateFooter() {
+  let totalDed = 0, totalNet = 0;
+  document.querySelectorAll('[id^="ded_total_"]').forEach(el => {
+    totalDed += parseInt((el.textContent || '0').replace(/,/g, '')) || 0;
   });
-  document.getElementById('dedNamesList').value = names.join(',');
+  document.querySelectorAll('[id^="net_"]').forEach(el => {
+    totalNet += parseInt((el.textContent || '0').replace(/,/g, '')) || 0;
+  });
+  const fDed = document.getElementById('footer_ded_total');
+  const fNet = document.getElementById('footer_net_total');
+  if (fDed) fDed.textContent = totalDed.toLocaleString();
+  if (fNet) fNet.textContent = totalNet.toLocaleString();
 }
+
+function confirmFinalize() {
+  return confirm('급여대장을 최종 확정하시겠습니까?\n확정 후에도 재편집이 가능합니다.');
+}
+
+// 페이지 로드 시 푸터 합계 초기화
+window.addEventListener('DOMContentLoaded', updateFooter);
 </script>
 {% endblock %}
