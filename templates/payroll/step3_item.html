@@ -34,7 +34,7 @@
                  style="width:32px;height:32px;font-size:12px;margin:0 auto;
                         background:{{ '#1a4f8a' if is_active else ('#28a745' if is_done else '#e2e8f0') }};
                         color:{{ '#fff' if (is_active or is_done) else '#718096' }}">
-              {{ '✓' if is_done else (loop.index) }}
+              {{ '✓' if is_done else loop.index }}
             </div>
           </a>
           <div style="font-size:10px;margin-top:4px;text-align:center;max-width:72px;
@@ -71,16 +71,14 @@
     </span>
     {% endif %}
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 align-items-center">
     {% if has_prev %}
     <a href="?load_prev=1" class="btn btn-outline-secondary btn-sm"
        onclick="return confirm('전월 [{{ allowance.name }}] 금액으로 덮어씌우시겠습니까?')">
       📂 전월 불러오기
     </a>
     {% endif %}
-    <span style="font-size:12px;color:#64748b;align-self:center">
-      {{ cur_idx + 1 }} / {{ allowances | length }}
-    </span>
+    <span style="font-size:12px;color:#64748b">{{ cur_idx + 1 }} / {{ allowances|length }}</span>
   </div>
 </div>
 
@@ -91,15 +89,16 @@
 {% endfor %}
 {% if flagged %}
 <div class="alert alert-warning py-2 mb-3" style="font-size:12px">
-  ⚠️ 아래 <strong>{{ flagged|length }}명</strong>은 근무일수 미달({{ allowance.condition_value }}일 기준)로
-  지급 제외 처리됩니다. 필요 시 수동으로 변경하세요.
-  <span class="ms-2 text-muted">
-    ({{ flagged | map(attribute='name_code') | join(', ') }})
-  </span>
+  ⚠️ <strong>{{ flagged|length }}명</strong> 근무일수 미달({{ allowance.condition_value }}일 기준) — 지급 제외 자동 처리.
+  수동으로 변경 가능합니다.
+  <span class="ms-2 text-muted">({{ flagged|map(attribute='name_code')|join(', ') }})</span>
 </div>
 {% endif %}
 
-<form method="POST">
+{% set has_notes = '기타' in allowance.name %}
+
+<!-- 메인 저장 폼 -->
+<form method="POST" id="mainForm">
   <div class="card mb-3">
     <div class="card-body p-0">
       <div class="table-responsive" style="max-height:520px;overflow:auto">
@@ -110,80 +109,112 @@
               <th>소속</th>
               <th class="text-center" style="min-width:60px">구분</th>
               <th class="text-center" style="min-width:80px">근무일수</th>
-              <th class="text-center" style="min-width:60px">지급</th>
-              <th style="text-align:right;min-width:120px">{{ allowance.name }} 금액</th>
-              <th style="text-align:right;min-width:110px;background:#0f3460">총지급(현재)</th>
+              <th class="text-center" style="min-width:55px">지급</th>
+              <th style="text-align:right;min-width:120px">금액 (원)</th>
+              {% if has_notes %}
+              <th style="min-width:160px">메모</th>
+              {% endif %}
+              <th style="text-align:right;min-width:110px">총지급(현재)</th>
+              <th style="text-align:center;min-width:44px" title="기본정보에서 영구 제외">제외</th>
             </tr>
           </thead>
           <tbody>
-            {% for entry in entries %}
-            {% set val = amounts[entry.id] %}
-            <tr {% if entry.is_new_hire %}style="background:#f0fff4"
-                {% elif entry.is_resigned %}style="background:#fff5f5"{% endif %}>
-              <td>
-                <code style="font-size:11px;color:#1a4f8a">{{ entry.name_code }}</code>
-                {% if entry.is_new_hire %}
-                  <span class="badge bg-success ms-1" style="font-size:9px">입사</span>
-                {% elif entry.is_resigned %}
-                  <span class="badge bg-danger ms-1" style="font-size:9px">퇴사</span>
-                {% endif %}
-              </td>
-              <td>{{ entry.department or '—' }}</td>
-              <td class="text-center">
-                {% if entry.is_new_hire %}입사
-                {% elif entry.is_resigned %}퇴사
-                {% else %}재직{% endif %}
-              </td>
-              <td class="text-center">
-                {{ entry.work_days }}/{{ entry.scheduled_days }}
-                {% if entry.is_new_hire or entry.is_resigned %}
-                <span class="text-muted" style="font-size:10px">일</span>
-                {% endif %}
-              </td>
-              <td class="text-center">
-                <input type="checkbox"
-                       name="paid_{{ entry.id }}"
-                       class="form-check-input pay-toggle"
-                       data-entryid="{{ entry.id }}"
-                       {% if val.is_paid %}checked{% endif %}
-                       onchange="toggleAmt(this)">
-                {% if val.flag %}
-                  <span title="{{ allowance.condition_value }}일 미달" style="font-size:11px">⚠️</span>
-                {% endif %}
-              </td>
-              <td style="padding:3px 6px;text-align:right">
-                <input type="text"
-                       name="amt_{{ entry.id }}"
-                       id="amt_{{ entry.id }}"
-                       class="form-control form-control-sm text-end number-input"
-                       value="{{ val.amount | fmt_number if val.amount else '' }}"
-                       {% if not val.is_paid %}disabled style="width:110px;background:#f9fafb;color:#ccc"
-                       {% else %}style="width:110px"{% endif %}>
-              </td>
-              <td style="text-align:right;font-weight:600;color:#0f3460">
-                {{ entry.gross_pay | fmt_number }}
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="7" class="text-center py-4 text-muted">대상 직원이 없습니다.</td></tr>
-            {% endfor %}
-          </tbody>
-          {% if entries %}
-          <tfoot style="background:#f3f4f6;font-weight:700;position:sticky;bottom:0">
-            <tr>
-              <td colspan="5" style="text-align:right">합계</td>
-              <td style="text-align:right" id="footer_allow_total">
-                {% set t = namespace(v=0) %}
-                {% for entry in entries %}
-                  {% if amounts[entry.id].is_paid %}
-                    {% set t.v = t.v + amounts[entry.id].amount %}
+            {% if entries %}
+              {% for entry in entries %}
+              {% set val = amounts[entry.id] %}
+              <tr {% if entry.is_new_hire %}style="background:#f0fff4"
+                  {% elif entry.is_resigned %}style="background:#fff5f5"{% endif %}>
+                <td>
+                  <code style="font-size:11px;color:#1a4f8a">{{ entry.name_code }}</code>
+                  {% if entry.is_new_hire %}
+                    <span class="badge bg-success ms-1" style="font-size:9px">입사</span>
+                  {% elif entry.is_resigned %}
+                    <span class="badge bg-danger ms-1" style="font-size:9px">퇴사</span>
                   {% endif %}
-                {% endfor %}
+                </td>
+                <td>{{ entry.department or '—' }}</td>
+                <td class="text-center text-muted" style="font-size:11px">
+                  {% if entry.is_new_hire %}입사{% elif entry.is_resigned %}퇴사{% else %}재직{% endif %}
+                </td>
+                <td class="text-center" style="font-size:12px">
+                  {{ entry.work_days }}/{{ entry.scheduled_days }}
+                </td>
+                <td class="text-center">
+                  <input type="checkbox"
+                         name="paid_{{ entry.id }}"
+                         class="form-check-input pay-toggle"
+                         data-entryid="{{ entry.id }}"
+                         {% if val.is_paid %}checked{% endif %}
+                         onchange="toggleAmt(this)">
+                  {% if val.flag %}
+                    <span title="{{ allowance.condition_value }}일 미달" style="font-size:10px">⚠️</span>
+                  {% endif %}
+                </td>
+                <td style="padding:3px 6px;text-align:right">
+                  <input type="text"
+                         name="amt_{{ entry.id }}"
+                         id="amt_{{ entry.id }}"
+                         class="form-control form-control-sm text-end number-input"
+                         value="{{ val.amount | fmt_number if val.amount else '' }}"
+                         {% if not val.is_paid %}
+                           disabled style="width:110px;background:#f9fafb;color:#ccc"
+                         {% else %}
+                           style="width:110px"
+                         {% endif %}>
+                </td>
+                {% if has_notes %}
+                <td style="padding:3px 6px">
+                  <input type="text"
+                         name="notes_{{ entry.id }}"
+                         class="form-control form-control-sm"
+                         value="{{ val.notes or '' }}"
+                         placeholder="사유 메모"
+                         style="min-width:150px">
+                </td>
+                {% endif %}
+                <td style="text-align:right;font-weight:600;color:#374151">
+                  {{ entry.gross_pay | fmt_number }}
+                </td>
+                <td class="text-center">
+                  <!-- 영구 제외 버튼 (nested form 회피 — JS로 submit) -->
+                  <button type="button"
+                          class="btn btn-outline-danger"
+                          style="padding:1px 7px;font-size:11px;line-height:1.4"
+                          onclick="confirmRemove({{ entry.id }}, '{{ entry.name_code }}')"
+                          title="기본정보에서 영구 제외 (당월만 빼려면 체크 해제)">🗑</button>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="{{ 8 + (1 if has_notes else 0) }}"
+                    class="text-center py-4 text-muted" style="font-size:12px">
+                  이 수당에 등록된 인원이 없습니다.
+                  {% if available_entries %}아래 [+ 인원 추가]를 이용하세요.{% endif %}
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+
+          {% if entries %}
+          <tfoot style="border-top:2px solid #dee2e6">
+            <tr style="background:#f8f9fa;font-weight:700">
+              <td colspan="4" style="text-align:right;padding:6px 8px;font-size:12px">합계</td>
+              <td class="text-center" style="padding:6px 8px;font-size:12px">
+                {% set cnt = namespace(v=0) %}
+                {% for entry in entries %}{% if amounts[entry.id].is_paid %}{% set cnt.v = cnt.v + 1 %}{% endif %}{% endfor %}
+                <span id="footer_paid_count">{{ cnt.v }}</span>명
+              </td>
+              <td style="text-align:right;padding:6px 8px" id="footer_allow_total">
+                {% set t = namespace(v=0) %}
+                {% for entry in entries %}{% if amounts[entry.id].is_paid %}{% set t.v = t.v + amounts[entry.id].amount %}{% endif %}{% endfor %}
                 {{ t.v | fmt_number }}
               </td>
-              <td style="text-align:right">
+              {% if has_notes %}<td style="padding:6px 8px"></td>{% endif %}
+              <td style="text-align:right;padding:6px 8px">
                 {{ entries | sum(attribute='gross_pay') | fmt_number }}
               </td>
+              <td></td>
             </tr>
           </tfoot>
           {% endif %}
@@ -193,7 +224,7 @@
   </div>
 
   <!-- 하단 네비게이션 -->
-  <div class="d-flex justify-content-between align-items-center">
+  <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
       {% if prev_allow %}
       <a href="{{ url_for('payroll_step3_item', period_id=period.id, allowance_id=prev_allow.id) }}"
@@ -207,17 +238,65 @@
       <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
          class="btn btn-outline-secondary">취소</a>
       {% if is_last %}
-      <button type="submit" class="btn btn-success px-4">
-        ✅ 저장 후 수당 완료
-      </button>
+      <button type="submit" class="btn btn-success px-4">✅ 저장 후 수당 완료</button>
       {% else %}
       <button type="submit" class="btn btn-primary px-4">
-        저장 후 다음 → <span style="font-size:11px;opacity:.8">{{ next_allow.name }}</span>
+        저장 후 다음 →
+        <span style="font-size:11px;opacity:.8">{{ next_allow.name }}</span>
       </button>
       {% endif %}
     </div>
   </div>
 </form>
+
+<!-- 인원 추가 패널 (메인 폼 바깥) -->
+{% if available_entries %}
+<div class="card" style="border:1px dashed #3b82f6">
+  <div class="card-header d-flex justify-content-between align-items-center"
+       style="background:#eff6ff;cursor:pointer;font-size:13px;padding:8px 16px"
+       onclick="document.getElementById('addPanel').classList.toggle('d-none')">
+    <span style="color:#1e40af;font-weight:600">+ 인원 추가 ({{ available_entries|length }}명 추가 가능)</span>
+    <span style="color:#64748b;font-size:11px">▼ 클릭</span>
+  </div>
+  <div id="addPanel" class="d-none">
+    <div class="card-body" style="background:#f8fbff">
+      <p style="font-size:12px;color:#dc2626;margin-bottom:12px">
+        ⚠️ 추가하면 <strong>기본정보에도 등록</strong>되어 <strong>다음달부터 고정 지급</strong>됩니다.
+      </p>
+      <form method="POST"
+            action="{{ url_for('payroll_step3_add_employee', period_id=period.id, allowance_id=allowance.id) }}"
+            onsubmit="return confirmAdd()"
+            class="d-flex gap-2 align-items-end flex-wrap">
+        <div>
+          <label class="form-label mb-1" style="font-size:12px;font-weight:600">직원 선택</label>
+          <select name="entry_id" class="form-select form-select-sm" style="min-width:200px">
+            {% for e in available_entries %}
+            <option value="{{ e.id }}">
+              {{ e.name_code }}{% if e.department %} · {{ e.department }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-1" style="font-size:12px;font-weight:600">금액 (원)</label>
+          <input type="text" name="amount"
+                 class="form-control form-control-sm number-input"
+                 placeholder="0" style="width:120px">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">추가</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- 영구 제외용 숨김 폼들 (nested form 회피) -->
+{% for entry in entries %}
+<form id="removeForm_{{ entry.id }}" method="POST"
+      action="{{ url_for('payroll_step3_remove_employee', period_id=period.id, allowance_id=allowance.id, entry_id=entry.id) }}"
+      style="display:none"></form>
+{% endfor %}
+
 {% endblock %}
 
 {% block scripts %}
@@ -232,8 +311,8 @@ document.querySelectorAll('.number-input').forEach(inp => {
 });
 
 function toggleAmt(cb) {
-  const id   = cb.dataset.entryid;
-  const inp  = document.getElementById('amt_' + id);
+  const id  = cb.dataset.entryid;
+  const inp = document.getElementById('amt_' + id);
   if (!inp) return;
   inp.disabled = !cb.checked;
   inp.style.background = cb.checked ? '' : '#f9fafb';
@@ -242,15 +321,34 @@ function toggleAmt(cb) {
 }
 
 function updateFooter() {
-  let total = 0;
+  let total = 0, count = 0;
   document.querySelectorAll('.pay-toggle').forEach(cb => {
     if (cb.checked) {
+      count++;
       const inp = document.getElementById('amt_' + cb.dataset.entryid);
       if (inp) total += parseInt((inp.value || '0').replace(/,/g, '')) || 0;
     }
   });
-  const el = document.getElementById('footer_allow_total');
-  if (el) el.textContent = total.toLocaleString();
+  const el  = document.getElementById('footer_allow_total');
+  const cnt = document.getElementById('footer_paid_count');
+  if (el)  el.textContent  = total.toLocaleString();
+  if (cnt) cnt.textContent = count;
 }
+
+function confirmAdd() {
+  return confirm(
+    '추가하면 기본정보에도 자동으로 등록되어\n다음달부터 고정으로 지급됩니다.\n\n계속하시겠습니까?'
+  );
+}
+
+function confirmRemove(entryId, nameCode) {
+  const ok = confirm(
+    '[' + nameCode + '] 제외 시 기본정보에서도 제외되어\n다음달부터 미지급 처리됩니다.\n\n' +
+    '※ 당월만 빼려면 [취소] 후 체크박스를 해제하세요.\n\n계속 (영구 제외) 하시겠습니까?'
+  );
+  if (ok) document.getElementById('removeForm_' + entryId).submit();
+}
+
+window.addEventListener('DOMContentLoaded', updateFooter);
 </script>
 {% endblock %}

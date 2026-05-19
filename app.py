@@ -958,7 +958,8 @@ def payroll_step3_item(period_id, allowance_id):
             amt_str = request.form.get(f'amt_{entry["id"]}', '0').replace(',', '')
             amount  = int(amt_str or 0)
             is_paid = 1 if request.form.get(f'paid_{entry["id"]}') else 0
-            db.upsert_payroll_allowance(entry['id'], allowance_id, amount, is_paid)
+            notes   = request.form.get(f'notes_{entry["id"]}', '') or None
+            db.upsert_payroll_allowance(entry['id'], allowance_id, amount, is_paid, notes)
         for entry in entries:
             db.recalculate_entry_totals(entry['id'])
 
@@ -972,23 +973,39 @@ def payroll_step3_item(period_id, allowance_id):
                                     period_id=period_id,
                                     allowance_id=next_allow['id']))
 
-    # GET — 이 수당의 직원별 값 준비
+    # GET — enrolled/available 분리 + 값 준비
     current_paid_map = db.get_payroll_allowances_by_period(period_id)
     load_prev = request.args.get('load_prev') == '1'
 
-    amounts = {}  # {entry_id: {amount, is_paid, flag}}
+    emp_ids     = [e['employee_id'] for e in entries]
+    ea_for_item = db.get_employee_allowances_for_item(emp_ids, allowance_id)
+
+    enrolled_entries  = []
+    available_entries = []
     for entry in entries:
+        base_amt = ea_for_item.get(entry['employee_id'], 0)
+        saved    = current_paid_map.get(entry['id'], {}).get(allowance_id)
+        is_enrolled = (base_amt > 0) or bool(saved and saved.get('is_paid', 0) == 1)
+        if is_enrolled:
+            enrolled_entries.append(entry)
+        else:
+            available_entries.append(entry)
+
+    amounts = {}
+    for entry in enrolled_entries:
         emp_ea = {ea['allowance_item_id']: ea['amount']
                   for ea in db.get_employee_allowances(entry['employee_id'])}
 
         if load_prev and prev and prev_paid_map:
             prev_data = _find_prev_entry_allowance(
                 prev_paid_map, prev['id'], entry['employee_id'], allowance_id)
-            val = dict(prev_data) if prev_data else {'amount': emp_ea.get(allowance_id, 0), 'is_paid': 1}
+            val = dict(prev_data) if prev_data else {
+                'amount': emp_ea.get(allowance_id, 0), 'is_paid': 1, 'notes': ''}
         elif entry['id'] in current_paid_map and allowance_id in current_paid_map[entry['id']]:
             val = dict(current_paid_map[entry['id']][allowance_id])
+            val.setdefault('notes', '')
         else:
-            val = {'amount': emp_ea.get(allowance_id, 0), 'is_paid': 1}
+            val = {'amount': emp_ea.get(allowance_id, 0), 'is_paid': 1, 'notes': ''}
 
         # 15일 조건 자동 플래그
         flag = False
@@ -1001,7 +1018,9 @@ def payroll_step3_item(period_id, allowance_id):
         amounts[entry['id']] = val
 
     return render_template('payroll/step3_item.html',
-                           period=period, entries=entries,
+                           period=period,
+                           entries=enrolled_entries,
+                           available_entries=available_entries,
                            allowance=allowance, allowances=allowances,
                            cur_idx=cur_idx, amounts=amounts,
                            total_days=total_days,
@@ -1009,6 +1028,36 @@ def payroll_step3_item(period_id, allowance_id):
                            is_last=is_last,
                            has_prev=bool(prev),
                            load_prev=load_prev)
+
+
+@app.route('/payroll/<int:period_id>/step3/<int:allowance_id>/add', methods=['POST'])
+def payroll_step3_add_employee(period_id, allowance_id):
+    """수당에 직원 추가 → 기본정보(employee_allowances)에도 반영"""
+    entry_id = int(request.form.get('entry_id', 0))
+    amount   = int(request.form.get('amount', '0').replace(',', '') or 0)
+    entry    = db.get_payroll_entry(entry_id)
+    if entry and amount > 0:
+        db.upsert_payroll_allowance(entry_id, allowance_id, amount, 1)
+        db.recalculate_entry_totals(entry_id)
+        db.upsert_employee_allowance(entry['employee_id'], allowance_id, amount)
+        flash('추가되었습니다. 기본정보에도 반영되어 다음달부터 고정 지급됩니다.', 'success')
+    else:
+        flash('금액을 0보다 크게 입력해주세요.', 'warning')
+    return redirect(url_for('payroll_step3_item',
+                            period_id=period_id, allowance_id=allowance_id))
+
+
+@app.route('/payroll/<int:period_id>/step3/<int:allowance_id>/remove/<int:entry_id>', methods=['POST'])
+def payroll_step3_remove_employee(period_id, allowance_id, entry_id):
+    """수당에서 직원 영구 제외 → 기본정보에서도 제외"""
+    entry = db.get_payroll_entry(entry_id)
+    if entry:
+        db.upsert_payroll_allowance(entry_id, allowance_id, 0, 0)
+        db.recalculate_entry_totals(entry_id)
+        db.upsert_employee_allowance(entry['employee_id'], allowance_id, 0)
+        flash('제외되었습니다. 기본정보에서도 제외되어 다음달부터 미지급 처리됩니다.', 'success')
+    return redirect(url_for('payroll_step3_item',
+                            period_id=period_id, allowance_id=allowance_id))
 
 
 def _refresh_entry_from_employee(entry):

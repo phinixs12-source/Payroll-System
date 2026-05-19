@@ -212,6 +212,12 @@ def init_db():
         except Exception:
             pass
 
+    # payroll_allowance_entries 메모 컬럼 마이그레이션
+    try:
+        cur.execute("ALTER TABLE payroll_allowance_entries ADD COLUMN notes TEXT")
+    except Exception:
+        pass
+
     # 기본 수당 항목 삽입
     cur.execute("SELECT COUNT(*) FROM allowance_items")
     if cur.fetchone()[0] == 0:
@@ -702,10 +708,10 @@ def recalculate_entry_totals(entry_id):
 # ─── 수당 지급 내역 ──────────────────────────────────────────
 
 def get_payroll_allowances_by_period(period_id):
-    """{ entry_id: { allowance_item_id: {amount, is_paid} } }"""
+    """{ entry_id: { allowance_item_id: {amount, is_paid, notes} } }"""
     conn = get_db()
     rows = conn.execute("""
-        SELECT pae.entry_id, pae.allowance_item_id, pae.amount, pae.is_paid
+        SELECT pae.entry_id, pae.allowance_item_id, pae.amount, pae.is_paid, pae.notes
         FROM payroll_allowance_entries pae
         JOIN payroll_entries pe ON pae.entry_id = pe.id
         WHERE pe.period_id = ?
@@ -714,21 +720,37 @@ def get_payroll_allowances_by_period(period_id):
     result = {}
     for r in rows:
         result.setdefault(r['entry_id'], {})[r['allowance_item_id']] = {
-            'amount': r['amount'], 'is_paid': r['is_paid']
+            'amount': r['amount'], 'is_paid': r['is_paid'], 'notes': r['notes'] or ''
         }
     return result
 
 
-def upsert_payroll_allowance(entry_id, allowance_item_id, amount, is_paid=1):
+def upsert_payroll_allowance(entry_id, allowance_item_id, amount, is_paid=1, notes=None):
     conn = get_db()
     conn.execute("""
-        INSERT INTO payroll_allowance_entries (entry_id, allowance_item_id, amount, is_paid)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO payroll_allowance_entries (entry_id, allowance_item_id, amount, is_paid, notes)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(entry_id, allowance_item_id)
-        DO UPDATE SET amount=excluded.amount, is_paid=excluded.is_paid
-    """, (entry_id, allowance_item_id, amount, is_paid))
+        DO UPDATE SET amount=excluded.amount, is_paid=excluded.is_paid,
+                      notes=CASE WHEN excluded.notes IS NOT NULL THEN excluded.notes ELSE notes END
+    """, (entry_id, allowance_item_id, amount, is_paid, notes))
     conn.commit()
     conn.close()
+
+
+def get_employee_allowances_for_item(emp_ids, allowance_item_id):
+    """특정 수당에 대한 직원별 기본금액 {employee_id: amount} — 일괄 조회"""
+    if not emp_ids:
+        return {}
+    conn = get_db()
+    placeholders = ','.join('?' * len(emp_ids))
+    rows = conn.execute(
+        f"SELECT employee_id, amount FROM employee_allowances "
+        f"WHERE employee_id IN ({placeholders}) AND allowance_item_id=?",
+        (*emp_ids, allowance_item_id)
+    ).fetchall()
+    conn.close()
+    return {r['employee_id']: r['amount'] for r in rows}
 
 
 # ─── 공제 내역 ──────────────────────────────────────────────
