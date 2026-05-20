@@ -34,7 +34,7 @@
         <table class="table table-sm mb-0" style="font-size:12px;white-space:nowrap">
           <thead style="position:sticky;top:0;z-index:10;background:#1a4f8a;color:#fff">
             <tr>
-              <th style="min-width:110px">이름코드</th>
+              <th style="min-width:110px">이름</th>
               <th>소속</th>
               <th class="text-center">근무일</th>
               {% for a in allowances %}
@@ -53,7 +53,7 @@
             <tr {% if entry.is_new_hire %}style="background:#f0fff4"
                 {% elif entry.is_resigned %}style="background:#fff5f5"{% endif %}>
               <td>
-                <code style="font-size:11px;color:#1a4f8a">{{ entry.name_code }}</code>
+                <span style="font-size:12px;color:#1a4f8a;font-weight:600">{{ entry.name_code }}</span>
                 {% if entry.is_new_hire %}
                   <span class="badge bg-success" style="font-size:9px">입사</span>
                 {% elif entry.is_resigned %}

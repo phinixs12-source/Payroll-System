@@ -19,11 +19,11 @@
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">이름 코드 <span class="text-danger">*</span></label>
+              <label class="form-label">이름 <span class="text-danger">*</span></label>
               <div class="input-group">
                 <input type="text" name="name_code" class="form-control"
                        value="{{ employee.name_code if employee else '' }}"
-                       placeholder="예: h4g3d411" required>
+                       placeholder="예: 홍길동" required>
                 <a href="{{ url_for('employee_register') }}" target="_blank"
                    class="btn btn-outline-secondary" title="코드 생성기">🔐</a>
               </div>

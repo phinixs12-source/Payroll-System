@@ -63,7 +63,7 @@
             <th id="checkboxCol" style="display:none;width:40px" class="text-center">
               <input type="checkbox" id="masterCheck" onchange="toggleMaster(this)">
             </th>
-            <th>이름코드</th>
+            <th>이름</th>
             <th>구분</th>
             <th>부서</th>
             <th>계약</th>
@@ -87,14 +87,13 @@
             <!-- 삭제 체크박스 (숨김) -->
             <td class="chk-cell text-center" style="display:none">
               <input type="checkbox" class="emp-checkbox form-check-input"
-                     name="delete_ids" value="{{ emp.id }}"
-                     form="bulkDeleteForm"
+                     value="{{ emp.id }}"
                      onchange="updateSelectedCount()">
             </td>
             <td>
               <a href="{{ url_for('employee_edit', emp_id=emp.id) }}"
                  class="text-decoration-none">
-                <code style="font-size:13px;color:#1a4f8a;font-weight:600">{{ emp.name_code }}</code>
+                <span style="font-size:13px;color:#1a4f8a;font-weight:600">{{ emp.name_code }}</span>
               </a>
             </td>
             <td>
@@ -229,9 +228,20 @@ function selectAll() {
 }
 
 function confirmBulkDelete() {
-  const count = document.querySelectorAll('.emp-checkbox:checked').length;
-  if (count === 0) { alert('삭제할 인원을 선택하세요.'); return false; }
-  return confirm(count + '명을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.');
+  const checked = document.querySelectorAll('.emp-checkbox:checked');
+  if (checked.length === 0) { alert('삭제할 인원을 선택하세요.'); return false; }
+  if (!confirm(checked.length + '명을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return false;
+  // 체크된 ID들을 hidden input으로 폼에 주입
+  const form = document.getElementById('bulkDeleteForm');
+  form.querySelectorAll('input[name="delete_ids"]').forEach(el => el.remove());
+  checked.forEach(cb => {
+    const hidden = document.createElement('input');
+    hidden.type  = 'hidden';
+    hidden.name  = 'delete_ids';
+    hidden.value = cb.value;
+    form.appendChild(hidden);
+  });
+  return true;
 }
 </script>
 {% endblock %}

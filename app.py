@@ -318,17 +318,10 @@ def employee_delete(emp_id):
 
 @app.route('/employees/bulk-delete', methods=['POST'])
 def employee_bulk_delete():
-    ids = request.form.getlist('delete_ids')
-    count = 0
-    for eid in ids:
-        try:
-            emp = db.get_employee(int(eid))
-            if emp:
-                db.delete_employee(int(eid))
-                count += 1
-        except Exception:
-            pass
-    flash(f'{count}명이 삭제되었습니다.', 'success' if count else 'warning')
+    ids = [int(i) for i in request.form.getlist('delete_ids') if i.isdigit()]
+    if ids:
+        db.bulk_delete_employees(ids)
+    flash(f'{len(ids)}명이 삭제되었습니다.', 'success' if ids else 'warning')
     return redirect(url_for('employee_list'))
 
 
@@ -1091,6 +1084,186 @@ def _refresh_entry_from_employee(entry):
     db.recalculate_entry_totals(entry['id'])
 
 
+@app.route('/payroll/<int:period_id>/step4/<int:deduction_id>/upload', methods=['POST'])
+def payroll_step4_upload_insurance(period_id, deduction_id):
+    """4대보험 고지서 엑셀 업로드 → match_key로 매칭 후 공제금액 자동 입력"""
+    period    = db.get_payroll_period(period_id)
+    deduction = db.get_deduction(deduction_id)
+    if not period or not deduction:
+        return redirect(url_for('payroll'))
+
+    file = request.files.get('file')
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xls')):
+        flash('엑셀 파일(.xls/.xlsx)을 업로드해주세요.', 'danger')
+        return redirect(url_for('payroll_step4_item',
+                                period_id=period_id, deduction_id=deduction_id))
+
+    ded_name = deduction['name']
+    is_health = any(k in ded_name for k in ['건강', '장기요양', '요양'])
+
+    try:
+        if is_health:
+            _upload_health_insurance(period_id, file)
+        else:
+            _upload_pension_insurance(period_id, deduction, file)
+    except Exception as e:
+        flash(f'파일 처리 오류: {str(e)}', 'danger')
+
+    return redirect(url_for('payroll_step4_item',
+                            period_id=period_id, deduction_id=deduction_id))
+
+
+def _read_insurance_rows(file):
+    """업로드된 파일을 행 리스트로 읽기 (.xls/.xlsx 모두 지원)"""
+    fname = file.filename.lower()
+    if fname.endswith('.xlsx'):
+        wb = openpyxl.load_workbook(file, data_only=True)
+        return list(wb.active.iter_rows(min_row=1, values_only=True))
+    else:
+        try:
+            import xlrd as _xlrd
+        except ImportError:
+            raise RuntimeError('xlrd 라이브러리가 필요합니다. pip install xlrd 후 재시도하세요.')
+        wb = _xlrd.open_workbook(file_contents=file.read())
+        ws = wb.sheet_by_index(0)
+        return [[ws.cell_value(i, j) for j in range(ws.ncols)] for i in range(ws.nrows)]
+
+
+def _build_match_map(period_id):
+    """period의 match_key → entry_id 맵 + 중복키 집합 반환"""
+    from collections import Counter
+    entries_info = db.get_payroll_entries_with_match_key(period_id)
+    key_to_entry = {}
+    counts = Counter()
+    for ei in entries_info:
+        mk = (ei['match_key'] or '').strip()
+        if mk:
+            key_to_entry[mk] = ei['entry_id']
+            counts[mk] += 1
+    duplicate_keys = {k for k, c in counts.items() if c > 1}
+    return key_to_entry, duplicate_keys
+
+
+def _upload_pension_insurance(period_id, deduction, file):
+    """국민연금 고지서 업로드 (xlsx, col C=주민번호 마스킹, col F=직접납부기여금)"""
+    rows = _read_insurance_rows(file)
+    key_to_entry, duplicate_keys = _build_match_map(period_id)
+
+    matched, unmatched, manual_needed = 0, [], []
+
+    for row in rows:
+        if len(row) < 6:
+            continue
+        raw_id = str(row[2]).strip() if row[2] else ''
+        if '-' not in raw_id or len(raw_id) < 8:
+            continue
+        match_key = raw_id.replace('-', '')[:7]
+        if not match_key.isdigit() or len(match_key) < 7:
+            continue
+
+        name = str(row[1]).strip() if row[1] else '이름미상'
+
+        if match_key in duplicate_keys:
+            amt_raw = row[5]
+            amt = int(amt_raw) if isinstance(amt_raw, (int, float)) and amt_raw > 0 else 0
+            manual_needed.append(f'{name}({match_key}): {amt:,}원')
+            continue
+
+        amt_raw = row[5]
+        if not isinstance(amt_raw, (int, float)) or amt_raw <= 0:
+            continue
+        amt = int(amt_raw)
+
+        if match_key in key_to_entry:
+            entry_id = key_to_entry[match_key]
+            db.upsert_payroll_deduction(entry_id, deduction['name'], amt)
+            db.recalculate_entry_totals(entry_id)
+            matched += 1
+        else:
+            unmatched.append(f'{name}({match_key}): {amt:,}원')
+
+    _flash_upload_result(deduction['name'], matched, unmatched, manual_needed)
+
+
+def _upload_health_insurance(period_id, file):
+    """건강보험 고지서 업로드 (xls, col H=주민번호 풀, col R=건강고지, col AA=요양고지)
+    건강보험 + 장기요양보험 공제 항목을 동시에 입력
+    """
+    # 건강보험 / 장기요양 공제 항목 탐색
+    all_deds = db.get_all_deductions()
+    health_ded = next((d for d in all_deds
+                       if d['is_active'] and '건강' in d['name']
+                       and '장기' not in d['name'] and '요양' not in d['name']), None)
+    care_ded   = next((d for d in all_deds
+                       if d['is_active'] and ('장기요양' in d['name'] or '요양' in d['name'])
+                       and '건강' not in d['name']), None)
+
+    if not health_ded:
+        flash('건강보험 공제 항목을 찾을 수 없습니다. (항목명에 "건강" 포함 필요)', 'danger')
+        return
+    if not care_ded:
+        flash('장기요양보험 공제 항목을 찾을 수 없습니다. (항목명에 "요양" 포함 필요)', 'danger')
+        return
+
+    rows = _read_insurance_rows(file)
+    key_to_entry, duplicate_keys = _build_match_map(period_id)
+
+    matched, unmatched, manual_needed = 0, [], []
+
+    for row in rows:
+        if len(row) < 27:
+            continue
+        # col H (index 7): 주민등록번호 (풀 13자리: XXXXXX-XXXXXXX)
+        raw_id = str(row[7]).strip() if row[7] else ''
+        if '-' not in raw_id or len(raw_id) < 13:
+            continue
+        match_key = raw_id.replace('-', '')[:7]
+        if not match_key.isdigit() or len(match_key) < 7:
+            continue
+
+        name = str(row[6]).strip() if row[6] else '이름미상'
+
+        # col R (index 17): 건강보험 고지금액 / col AA (index 26): 요양 고지보험료
+        h_amt = int(row[17]) if isinstance(row[17], (int, float)) and row[17] > 0 else 0
+        c_amt = int(row[26]) if isinstance(row[26], (int, float)) and row[26] > 0 else 0
+
+        if h_amt == 0 and c_amt == 0:
+            continue
+
+        if match_key in duplicate_keys:
+            manual_needed.append(
+                f'{name}({match_key}): 건강 {h_amt:,}원 / 요양 {c_amt:,}원')
+            continue
+
+        if match_key in key_to_entry:
+            entry_id = key_to_entry[match_key]
+            if h_amt > 0:
+                db.upsert_payroll_deduction(entry_id, health_ded['name'], h_amt)
+            if c_amt > 0:
+                db.upsert_payroll_deduction(entry_id, care_ded['name'], c_amt)
+            db.recalculate_entry_totals(entry_id)
+            matched += 1
+        else:
+            unmatched.append(
+                f'{name}({match_key}): 건강 {h_amt:,}원 / 요양 {c_amt:,}원')
+
+    label = f'{health_ded["name"]} + {care_ded["name"]}'
+    _flash_upload_result(label, matched, unmatched, manual_needed)
+
+
+def _flash_upload_result(label, matched, unmatched, manual_needed):
+    """업로드 결과 flash 메시지 생성"""
+    parts = [f'✅ {matched}명 [{label}] 자동 입력 완료']
+    if manual_needed:
+        parts.append(f'⚠️ 주민번호 중복 — 수동 입력 필요 {len(manual_needed)}명: '
+                     + ' / '.join(manual_needed[:3]))
+    if unmatched:
+        parts.append(f'💰 미매칭(퇴사자 등) {len(unmatched)}명: '
+                     + ' / '.join(unmatched[:5]))
+    category = 'warning' if (manual_needed or unmatched) else 'success'
+    flash('  |  '.join(parts), category)
+
+
 @app.route('/payroll/<int:period_id>/refresh', methods=['POST'])
 def payroll_refresh(period_id):
     """직원 DB에서 급여 기본값 재적용 (기본급·연장수당만, 수당·공제 보존)"""
@@ -1188,6 +1361,12 @@ def payroll_step4_item(period_id, deduction_id):
                     for ed in db.get_employee_deductions(entry['employee_id'])}
         saved_val = saved_by_entry.get(entry['id'], {}).get(deduction['name'])
         ded_map[entry['id']] = saved_val if saved_val is not None else emp_deds.get(deduction_id, 0)
+
+    # 고용보험: 저장값 없으면 총지급 × 0.8% 자동 계산
+    if '고용' in deduction['name']:
+        for entry in entries:
+            if not ded_map[entry['id']]:
+                ded_map[entry['id']] = round((entry['gross_pay'] or 0) * 0.008)
 
     return render_template('payroll/step4_item.html',
                            period=period, entries=entries,

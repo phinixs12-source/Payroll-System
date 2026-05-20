@@ -66,15 +66,56 @@
     </span>
     {% if deduction.is_insurance %}
     <span class="badge ms-2" style="background:#e0f2fe;color:#0369a1;font-size:11px">4대보험</span>
-    <span class="ms-2" style="font-size:12px;color:#6d28d9">
-      · 직원별 기본값 불러옴 — 자동계산 기능 준비 중
-    </span>
+    {% if '고용' in deduction.name %}
+    <span class="ms-2" style="font-size:12px;color:#0369a1">🔢 총지급 × 0.8% 자동 계산 (저장 전 수정 가능)</span>
+    {% endif %}
     {% else %}
     <span class="ms-3" style="font-size:12px;color:#6b7280">📌 고정 공제</span>
     {% endif %}
   </div>
   <span style="font-size:12px;color:#64748b">{{ cur_idx + 1 }} / {{ ded_items|length }}</span>
 </div>
+
+{% if deduction.is_insurance %}
+<!-- 4대보험 고지서 업로드 -->
+<div class="card mb-3" style="border:1px solid #c4b5fd">
+  <div class="card-body" style="background:#f5f3ff">
+    <div class="d-flex align-items-start gap-3">
+      <div style="font-size:28px;line-height:1">📄</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:14px;color:#5b21b6;margin-bottom:4px">
+          {% if '건강' in deduction.name or '요양' in deduction.name %}
+            건강보험 고지서 업로드 (.xls)
+          {% else %}
+            {{ deduction.name }} 고지서 업로드 (.xlsx)
+          {% endif %}
+        </div>
+        <div style="font-size:12px;color:#6d28d9;margin-bottom:10px">
+          {% if '건강' in deduction.name or '요양' in deduction.name %}
+            고지서 .xls 파일을 올리면 주민번호 앞 7자리로 매칭하여
+            <strong>건강보험(고지금액) + 장기요양(요양고지보험료)</strong>를 동시에 자동 입력합니다.
+          {% else %}
+            고지서 .xlsx 파일을 올리면 주민번호 앞 7자리로 매칭하여
+            <strong>직접납부기여금(F열)</strong>을 자동으로 입력합니다.
+          {% endif %}
+        </div>
+        <form method="POST"
+              action="{{ url_for('payroll_step4_upload_insurance', period_id=period.id, deduction_id=deduction.id) }}"
+              enctype="multipart/form-data"
+              class="d-flex align-items-center gap-2"
+              onsubmit="return confirm('고지서를 업로드하면 기존 입력값이 덮어씌워집니다.\n계속하시겠습니까?')">
+          <input type="file" name="file"
+                 accept="{% if '건강' in deduction.name or '요양' in deduction.name %}.xls,.xlsx{% else %}.xlsx,.xls{% endif %}"
+                 class="form-control form-control-sm" style="max-width:320px" required>
+          <button type="submit" class="btn btn-sm btn-primary" style="white-space:nowrap">
+            📥 업로드 &amp; 자동입력
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <form method="POST" id="mainForm">
   <div class="card mb-3">
@@ -83,7 +124,7 @@
         <table class="table table-sm mb-0" style="font-size:13px;white-space:nowrap">
           <thead style="position:sticky;top:0;z-index:10;background:#7c3aed;color:#fff">
             <tr>
-              <th style="min-width:120px">이름코드</th>
+              <th style="min-width:120px">이름</th>
               <th>소속</th>
               <th class="text-center" style="min-width:60px">구분</th>
               <th style="text-align:right;min-width:120px">총지급</th>
@@ -96,7 +137,7 @@
             <tr {% if entry.is_new_hire %}style="background:#f0fff4"
                 {% elif entry.is_resigned %}style="background:#fff5f5"{% endif %}>
               <td>
-                <code style="font-size:11px;color:#1a4f8a">{{ entry.name_code }}</code>
+                <span style="font-size:12px;color:#1a4f8a;font-weight:600">{{ entry.name_code }}</span>
                 {% if entry.is_new_hire %}
                   <span class="badge bg-success ms-1" style="font-size:9px">입사</span>
                 {% elif entry.is_resigned %}

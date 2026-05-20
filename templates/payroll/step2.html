@@ -32,7 +32,7 @@
       <table class="table table-sm mb-0" style="font-size:13px">
         <thead class="table-light">
           <tr>
-            <th>이름코드</th><th>소속</th><th>입사일</th>
+            <th>이름</th><th>소속</th><th>입사일</th>
             <th class="text-center">총 달력일수</th>
             <th class="text-center">근무일수</th>
             <th class="text-right" style="text-align:right">기본급(일할)</th>
@@ -44,7 +44,7 @@
           {% for e in new_hires %}
           {% set monthly = (e.annual_salary or 0) // 12 %}
           <tr>
-            <td><code style="color:#1a4f8a">{{ e.name_code }}</code></td>
+            <td><span style="color:#1a4f8a;font-weight:600">{{ e.name_code }}</span></td>
             <td>{{ e.department or '—' }}</td>
             <td>{{ (e.join_date or '')[:10] }}</td>
             <td class="text-center">{{ total_days }}일</td>
@@ -89,7 +89,7 @@
       <table class="table table-sm mb-0" style="font-size:13px">
         <thead class="table-light">
           <tr>
-            <th>이름코드</th><th>소속</th><th>퇴사일</th>
+            <th>이름</th><th>소속</th><th>퇴사일</th>
             <th class="text-center">총 달력일수</th>
             <th class="text-center">근무일수</th>
             <th class="text-right" style="text-align:right">기본급(일할)</th>
@@ -101,7 +101,7 @@
           {% for e in resigneds %}
           {% set monthly = (e.annual_salary or 0) // 12 %}
           <tr>
-            <td><code style="color:#1a4f8a">{{ e.name_code }}</code></td>
+            <td><span style="color:#1a4f8a;font-weight:600">{{ e.name_code }}</span></td>
             <td>{{ e.department or '—' }}</td>
             <td>{{ (e.resign_date or '')[:10] }}</td>
             <td class="text-center">{{ total_days }}일</td>

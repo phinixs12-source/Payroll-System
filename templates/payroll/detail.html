@@ -104,7 +104,7 @@
       <table class="table table-sm mb-0" style="font-size:12px;white-space:nowrap">
         <thead style="position:sticky;top:0;z-index:10">
           <tr style="background:#1a4f8a;color:#fff">
-            <th style="min-width:110px">이름코드</th>
+            <th style="min-width:110px">이름</th>
             <th>소속</th>
             <th class="text-center">입사일</th>
             <th class="text-right" style="text-align:right">연봉</th>
@@ -132,7 +132,7 @@
           <tr {% if e.is_new_hire %}style="background:#f0fff4"
               {% elif e.is_resigned %}style="background:#fff5f5"{% endif %}>
             <td>
-              <code style="font-size:11px;color:#1a4f8a">{{ e.name_code }}</code>
+              <span style="font-size:12px;color:#1a4f8a;font-weight:600">{{ e.name_code }}</span>
               {% if e.is_new_hire %}
                 <span class="badge bg-success ms-1" style="font-size:9px">입사</span>
               {% elif e.is_resigned %}

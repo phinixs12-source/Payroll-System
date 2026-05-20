@@ -367,7 +367,19 @@ def update_employee_salary(name_code, annual_salary):
 
 def delete_employee(emp_id):
     conn = get_db()
+    conn.execute("DELETE FROM payroll_entries WHERE employee_id=?", (emp_id,))
     conn.execute("DELETE FROM employees WHERE id=?", (emp_id,))
+    conn.commit()
+    conn.close()
+
+
+def bulk_delete_employees(ids):
+    """여러 직원을 단일 트랜잭션으로 일괄 삭제 (연관 데이터 포함)"""
+    conn = get_db()
+    ph = ','.join('?' * len(ids))
+    # 외래키 참조 순서대로 연관 데이터 먼저 삭제
+    conn.execute(f"DELETE FROM payroll_entries WHERE employee_id IN ({ph})", ids)
+    conn.execute(f"DELETE FROM employees WHERE id IN ({ph})", ids)
     conn.commit()
     conn.close()
 
@@ -791,6 +803,19 @@ def delete_payroll_deductions_by_entry(entry_id):
     conn.execute("DELETE FROM payroll_deduction_entries WHERE entry_id=?", (entry_id,))
     conn.commit()
     conn.close()
+
+
+def get_payroll_entries_with_match_key(period_id):
+    """기간의 급여대장 항목 + 직원 match_key (고지서 매칭용)"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT pe.id AS entry_id, e.match_key, e.name_code, e.department
+        FROM payroll_entries pe
+        JOIN employees e ON pe.employee_id = e.id
+        WHERE pe.period_id = ?
+    """, (period_id,)).fetchall()
+    conn.close()
+    return rows
 
 
 def delete_payroll_deduction_by_name(entry_id, deduction_name):
