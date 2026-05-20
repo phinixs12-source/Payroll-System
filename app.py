@@ -1121,49 +1121,80 @@ def _find_prev_entry_allowance(prev_paid_map, prev_period_id, employee_id, allow
     return prev_paid_map.get(entry_id, {}).get(allowance_id)
 
 
-@app.route('/payroll/<int:period_id>/step4', methods=['GET', 'POST'])
+@app.route('/payroll/<int:period_id>/step4')
 def payroll_step4(period_id):
-    period     = db.get_payroll_period(period_id)
+    """공제 처리 진입 → 첫 번째 공제 항목으로 리디렉트"""
+    period = db.get_payroll_period(period_id)
     if not period:
         return redirect(url_for('payroll'))
-    entries    = db.get_payroll_entries(period_id)
-    ded_items  = [d for d in db.get_all_deductions() if d['is_active']]
+    ded_items = [d for d in db.get_all_deductions() if d['is_active']]
+    if not ded_items:
+        db.update_payroll_period_status(period_id, 'completed')
+        flash('활성 공제 항목이 없어 바로 완료 처리됩니다.', 'info')
+        return redirect(url_for('payroll_detail', period_id=period_id))
+    return redirect(url_for('payroll_step4_item',
+                            period_id=period_id,
+                            deduction_id=ded_items[0]['id']))
+
+
+@app.route('/payroll/<int:period_id>/step4/<int:deduction_id>', methods=['GET', 'POST'])
+def payroll_step4_item(period_id, deduction_id):
+    """공제 항목 1개씩 처리"""
+    period    = db.get_payroll_period(period_id)
+    if not period:
+        return redirect(url_for('payroll'))
+
+    entries   = db.get_payroll_entries(period_id)
+    ded_items = [d for d in db.get_all_deductions() if d['is_active']]
+    deduction = db.get_deduction(deduction_id)
+
+    if not deduction or not deduction['is_active']:
+        return redirect(url_for('payroll_step4', period_id=period_id))
+
+    ded_ids  = [d['id'] for d in ded_items]
+    cur_idx  = ded_ids.index(deduction_id) if deduction_id in ded_ids else 0
+    prev_ded = ded_items[cur_idx - 1] if cur_idx > 0 else None
+    next_ded = ded_items[cur_idx + 1] if cur_idx < len(ded_items) - 1 else None
+    is_last  = (next_ded is None)
 
     if request.method == 'POST':
         for entry in entries:
-            db.delete_payroll_deductions_by_entry(entry['id'])
-            for d in ded_items:
-                key = f'ded_{entry["id"]}_{d["id"]}'
-                amt = int(request.form.get(key, '0').replace(',', '') or 0)
-                if amt > 0:
-                    db.upsert_payroll_deduction(entry['id'], d['name'], amt)
+            amt = int(request.form.get(f'ded_{entry["id"]}', '0').replace(',', '') or 0)
+            if amt > 0:
+                db.upsert_payroll_deduction(entry['id'], deduction['name'], amt)
+            else:
+                db.delete_payroll_deduction_by_name(entry['id'], deduction['name'])
             db.recalculate_entry_totals(entry['id'])
-        db.update_payroll_period_status(period_id, 'completed')
-        flash('공제 처리 완료. 급여대장이 확정되었습니다.', 'success')
-        return redirect(url_for('payroll_detail', period_id=period_id))
 
-    # GET — 직원별 기본 공제금액 pre-fill
-    ded_map = {}   # {entry_id: {item_id: amount}}
-    # 이미 저장된 값이 있으면 우선
+        if is_last:
+            db.update_payroll_period_status(period_id, 'completed')
+            flash('공제 처리 완료. 급여대장이 확정되었습니다.', 'success')
+            return redirect(url_for('payroll_detail', period_id=period_id))
+        else:
+            flash(f'[{deduction["name"]}] 저장 완료.', 'success')
+            return redirect(url_for('payroll_step4_item',
+                                    period_id=period_id,
+                                    deduction_id=next_ded['id']))
+
+    # GET — 직원별 공제금액 준비 (저장값 > 직원 기본값)
     saved = db.get_payroll_deductions_by_period(period_id)
     saved_by_entry = {}
     for s in saved:
         saved_by_entry.setdefault(s['entry_id'], {})[s['deduction_name']] = s['amount']
 
+    ded_map = {}
     for entry in entries:
         emp_deds = {ed['deduction_item_id']: ed['amount']
                     for ed in db.get_employee_deductions(entry['employee_id'])}
-        ded_map[entry['id']] = {}
-        for d in ded_items:
-            saved_val = saved_by_entry.get(entry['id'], {}).get(d['name'])
-            if saved_val is not None:
-                ded_map[entry['id']][d['id']] = saved_val
-            else:
-                ded_map[entry['id']][d['id']] = emp_deds.get(d['id'], 0)
+        saved_val = saved_by_entry.get(entry['id'], {}).get(deduction['name'])
+        ded_map[entry['id']] = saved_val if saved_val is not None else emp_deds.get(deduction_id, 0)
 
-    return render_template('payroll/step4.html',
+    return render_template('payroll/step4_item.html',
                            period=period, entries=entries,
-                           ded_items=ded_items, ded_map=ded_map)
+                           deduction=deduction, ded_items=ded_items,
+                           cur_idx=cur_idx, ded_map=ded_map,
+                           prev_ded=prev_ded, next_ded=next_ded,
+                           is_last=is_last)
 
 
 @app.route('/payroll/<int:period_id>/export')

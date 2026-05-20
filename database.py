@@ -791,3 +791,13 @@ def delete_payroll_deductions_by_entry(entry_id):
     conn.execute("DELETE FROM payroll_deduction_entries WHERE entry_id=?", (entry_id,))
     conn.commit()
     conn.close()
+
+
+def delete_payroll_deduction_by_name(entry_id, deduction_name):
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM payroll_deduction_entries WHERE entry_id=? AND deduction_name=?",
+        (entry_id, deduction_name)
+    )
+    conn.commit()
+    conn.close()

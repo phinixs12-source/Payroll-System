@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Step 4-{{ cur_idx + 1 }}: {{ deduction.name }} | {{ period.year }}년 {{ period.month }}월{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start">
+  <div>
+    <h1 class="page-title">Step 4: 공제 처리</h1>
+    <p class="page-subtitle">{{ period.year }}년 {{ period.month }}월 · 공제 항목별로 확인 후 저장하세요.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <form method="POST" action="{{ url_for('payroll_refresh', period_id=period.id) }}"
+          onsubmit="return confirm('직원 DB에서 기본급·연장수당을 재적용합니다.\n공제 입력값은 유지됩니다.')">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <button type="submit" class="btn btn-outline-warning btn-sm">🔄 새로고침</button>
+    </form>
+    <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+       class="btn btn-outline-secondary btn-sm">← 대장으로</a>
+  </div>
+</div>
+
+<!-- 공제 진행 표시 -->
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center gap-0">
+      {% for d in ded_items %}
+      {% set idx = loop.index0 %}
+      {% set is_done   = idx < cur_idx %}
+      {% set is_active = idx == cur_idx %}
+      <div class="d-flex align-items-center" style="flex:1">
+        <div class="d-flex flex-column align-items-center" style="min-width:72px">
+          <a href="{{ url_for('payroll_step4_item', period_id=period.id, deduction_id=d.id) }}"
+             style="text-decoration:none">
+            <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold"
+                 style="width:32px;height:32px;font-size:12px;margin:0 auto;
+                        background:{{ '#7c3aed' if is_active else ('#28a745' if is_done else '#e2e8f0') }};
+                        color:{{ '#fff' if (is_active or is_done) else '#718096' }}">
+              {{ '✓' if is_done else loop.index }}
+            </div>
+          </a>
+          <div style="font-size:10px;margin-top:4px;text-align:center;max-width:72px;
+                      color:{{ '#7c3aed' if is_active else ('#28a745' if is_done else '#aaa') }};
+                      font-weight:{{ '700' if is_active else '400' }}">
+            {{ d.name }}
+            {% if d.is_insurance %}
+            <span style="display:block;font-size:9px;color:#0369a1">보험료</span>
+            {% endif %}
+          </div>
+        </div>
+        {% if not loop.last %}
+        <div style="flex:1;height:2px;background:{{ '#28a745' if is_done else '#e2e8f0' }};
+                    margin:0 4px;margin-bottom:20px"></div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- 현재 공제 항목 배너 -->
+<div class="mb-3 p-3 rounded d-flex align-items-center justify-content-between"
+     style="background:{{ '#f5f3ff' if deduction.is_insurance else '#f8f9fa' }};
+            border:1px solid {{ '#c4b5fd' if deduction.is_insurance else '#dee2e6' }}">
+  <div>
+    <span style="font-size:18px;font-weight:700;color:{{ '#5b21b6' if deduction.is_insurance else '#1a202c' }}">
+      {{ deduction.name }}
+    </span>
+    {% if deduction.is_insurance %}
+    <span class="badge ms-2" style="background:#e0f2fe;color:#0369a1;font-size:11px">4대보험</span>
+    <span class="ms-2" style="font-size:12px;color:#6d28d9">
+      · 직원별 기본값 불러옴 — 자동계산 기능 준비 중
+    </span>
+    {% else %}
+    <span class="ms-3" style="font-size:12px;color:#6b7280">📌 고정 공제</span>
+    {% endif %}
+  </div>
+  <span style="font-size:12px;color:#64748b">{{ cur_idx + 1 }} / {{ ded_items|length }}</span>
+</div>
+
+<form method="POST" id="mainForm">
+  <div class="card mb-3">
+    <div class="card-body p-0">
+      <div class="table-responsive" style="max-height:540px;overflow:auto">
+        <table class="table table-sm mb-0" style="font-size:13px;white-space:nowrap">
+          <thead style="position:sticky;top:0;z-index:10;background:#7c3aed;color:#fff">
+            <tr>
+              <th style="min-width:120px">이름코드</th>
+              <th>소속</th>
+              <th class="text-center" style="min-width:60px">구분</th>
+              <th style="text-align:right;min-width:120px">총지급</th>
+              <th style="text-align:right;min-width:130px">{{ deduction.name }} (원)</th>
+              <th style="text-align:right;min-width:120px;background:#5b21b6">실지급(현재)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+            <tr {% if entry.is_new_hire %}style="background:#f0fff4"
+                {% elif entry.is_resigned %}style="background:#fff5f5"{% endif %}>
+              <td>
+                <code style="font-size:11px;color:#1a4f8a">{{ entry.name_code }}</code>
+                {% if entry.is_new_hire %}
+                  <span class="badge bg-success ms-1" style="font-size:9px">입사</span>
+                {% elif entry.is_resigned %}
+                  <span class="badge bg-danger ms-1" style="font-size:9px">퇴사</span>
+                {% endif %}
+              </td>
+              <td>{{ entry.department or '—' }}</td>
+              <td class="text-center text-muted" style="font-size:11px">
+                {% if entry.is_new_hire %}입사{% elif entry.is_resigned %}퇴사{% else %}재직{% endif %}
+              </td>
+              <td style="text-align:right;font-weight:600">
+                {{ entry.gross_pay | fmt_number }}
+              </td>
+              <td style="padding:3px 6px;text-align:right">
+                <input type="text"
+                       name="ded_{{ entry.id }}"
+                       id="ded_{{ entry.id }}"
+                       class="form-control form-control-sm text-end number-input"
+                       value="{{ ded_map[entry.id] | fmt_number if ded_map[entry.id] else '' }}"
+                       data-gross="{{ entry.gross_pay }}"
+                       style="width:120px"
+                       oninput="updateNet(this, {{ entry.id }})">
+              </td>
+              <td style="text-align:right;font-weight:700;color:#7c3aed" id="net_{{ entry.id }}">
+                {{ (entry.gross_pay - ded_map[entry.id]) | fmt_number }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          {% if entries %}
+          <tfoot style="border-top:2px solid #dee2e6">
+            <tr style="background:#f8f9fa;font-weight:700">
+              <td colspan="3" style="text-align:right;padding:6px 8px;font-size:12px">합계</td>
+              <td style="text-align:right;padding:6px 8px">
+                {{ entries | sum(attribute='gross_pay') | fmt_number }}
+              </td>
+              <td style="text-align:right;padding:6px 8px" id="footer_ded_total">
+                {% set t = namespace(v=0) %}
+                {% for entry in entries %}{% set t.v = t.v + ded_map[entry.id] %}{% endfor %}
+                {{ t.v | fmt_number }}
+              </td>
+              <td style="text-align:right;padding:6px 8px;color:#7c3aed" id="footer_net_total">
+                {% set nt = namespace(v=0) %}
+                {% for entry in entries %}{% set nt.v = nt.v + (entry.gross_pay - ded_map[entry.id]) %}{% endfor %}
+                {{ nt.v | fmt_number }}
+              </td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 네비게이션 -->
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      {% if prev_ded %}
+      <a href="{{ url_for('payroll_step4_item', period_id=period.id, deduction_id=prev_ded.id) }}"
+         class="btn btn-outline-secondary">← {{ prev_ded.name }}</a>
+      {% else %}
+      <a href="{{ url_for('payroll_step3', period_id=period.id) }}"
+         class="btn btn-outline-secondary">← Step 3 수당으로</a>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('payroll_detail', period_id=period.id) }}"
+         class="btn btn-outline-secondary">취소</a>
+      {% if is_last %}
+      <button type="submit" class="btn btn-success px-4"
+              onclick="return confirm('급여대장을 최종 확정하시겠습니까?\n확정 후에도 재편집 가능합니다.')">
+        ✅ 저장 후 급여대장 확정
+      </button>
+      {% else %}
+      <button type="submit" class="btn btn-primary px-4">
+        저장 후 다음 →
+        <span style="font-size:11px;opacity:.8">{{ next_ded.name }}</span>
+      </button>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.number-input').forEach(inp => {
+  inp.addEventListener('input', function () {
+    let v = this.value.replace(/[^0-9]/g, '');
+    this.value = v ? parseInt(v).toLocaleString() : '';
+  });
+});
+
+function updateNet(inp, entryId) {
+  const gross = parseInt(inp.dataset.gross) || 0;
+  const ded   = parseInt((inp.value || '0').replace(/,/g, '')) || 0;
+  const netEl = document.getElementById('net_' + entryId);
+  if (netEl) netEl.textContent = Math.max(0, gross - ded).toLocaleString();
+  updateFooter();
+}
+
+function updateFooter() {
+  let totalDed = 0, totalNet = 0;
+  document.querySelectorAll('[id^="net_"]').forEach(el => {
+    totalNet += parseInt((el.textContent || '0').replace(/,/g, '')) || 0;
+  });
+  document.querySelectorAll('.number-input').forEach(inp => {
+    totalDed += parseInt((inp.value || '0').replace(/,/g, '')) || 0;
+  });
+  const fd = document.getElementById('footer_ded_total');
+  const fn = document.getElementById('footer_net_total');
+  if (fd) fd.textContent = totalDed.toLocaleString();
+  if (fn) fn.textContent = totalNet.toLocaleString();
+}
+
+window.addEventListener('DOMContentLoaded', updateFooter);
+</script>
+{% endblock %}
